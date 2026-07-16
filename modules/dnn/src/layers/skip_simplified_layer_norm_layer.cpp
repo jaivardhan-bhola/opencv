@@ -29,7 +29,7 @@ public:
                           const int requiredInternals,
                           std::vector<MatType>& outputs,
                           std::vector<MatType>& internals) const CV_OVERRIDE {
-        outputs.assign(requiredOutputs, CV_32F);
+        outputs.assign(requiredOutputs, inputs[0]);
         internals.clear();
     }
 
@@ -50,6 +50,11 @@ public:
     void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE {
         CV_TRACE_FUNCTION();
 
+        if (inputs_arr.depth() == CV_16F) {
+            forward_fallback(inputs_arr, outputs_arr, internals_arr);
+            return;
+        }
+
         std::vector<Mat> inputs, outputs;
         inputs_arr.getMatVector(inputs);
         outputs_arr.getMatVector(outputs);
@@ -61,7 +66,23 @@ public:
 
         Mat& sumOut = outputs.back();  // input_skip_bias_sum
         cv::add(input, skip, sumOut);
-        if (hasBias) cv::add(sumOut, inputs[3], sumOut);
+        if (hasBias) {
+            // bias is (hidden_size,), sumOut is (..., hidden_size) -- cv::add's scalar
+            // broadcast only covers checkScalar()'s Size(1,1)/Size(1,cn)/Size(cn,1) cases,
+            // none of which match a real hidden_size-wide bias, so broadcast explicitly.
+            CV_CheckEQ((int)inputs[3].total(), (int)gamma.total(),
+                       "SkipSimplifiedLayerNormalization: bias/gamma size mismatch");
+            const int hidden = (int)gamma.total();
+            const int rows = (int)(sumOut.total() / hidden);
+            float* s = sumOut.ptr<float>();
+            const float* b = inputs[3].ptr<float>();
+            parallel_for_(Range(0, rows), [&](const Range& r) {
+                for (int i = r.start; i < r.end; ++i) {
+                    float* row = s + (size_t)i * hidden;
+                    for (int c = 0; c < hidden; ++c) row[c] += b[c];
+                }
+            });
+        }
 
         LayerParams rmsParams;
         rmsParams.set("axis", -1);

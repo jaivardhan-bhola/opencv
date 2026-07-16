@@ -54,7 +54,7 @@ public:
                           const int requiredInternals,
                           std::vector<MatType>& outputs,
                           std::vector<MatType>& internals) const CV_OVERRIDE {
-        outputs.assign(3, CV_32F);
+        outputs.assign(3, inputs[0]);
         internals.clear();
     }
 
@@ -65,6 +65,7 @@ public:
         CV_CheckGE((int)inputs.size(), 9, "GroupQueryAttention: expects 9 inputs");
         const MatShape& q = inputs[0];
         CV_CheckEQ(q.dims, 3, "GroupQueryAttention: query must be 3D (B,S,H*D)");
+        CV_CheckEQ(q[2] % num_heads, 0, "GroupQueryAttention: hidden size must be divisible by num_heads");
         int B = q[0], S = q[1];
         int D = q[2] / num_heads;
         int Sp = 0;
@@ -81,6 +82,7 @@ public:
 
     // (B,S,nH*D) -> flat (B,nH,S,D) row-major buffer.
     static void splitHeads(const Mat& x, int B, int S, int nH, int D, std::vector<float>& out) {
+        CV_Assert(x.isContinuous());
         out.resize((size_t)B * nH * S * D);
         const float* src = x.ptr<float>();
         for (int b = 0; b < B; ++b) {
@@ -120,6 +122,11 @@ public:
     void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE {
         CV_TRACE_FUNCTION();
 
+        if (inputs_arr.depth() == CV_16F) {
+            forward_fallback(inputs_arr, outputs_arr, internals_arr);
+            return;
+        }
+
         std::vector<Mat> inputs, outputs;
         inputs_arr.getMatVector(inputs);
         outputs_arr.getMatVector(outputs);
@@ -132,6 +139,10 @@ public:
         const Mat& seqlensK = inputs[5];
         const Mat& cosCache = inputs[7];
         const Mat& sinCache = inputs[8];
+
+        CV_Assert(query.isContinuous() && key.isContinuous() && value.isContinuous());
+        CV_CheckType(seqlensK.depth(), seqlensK.depth() == CV_32S || seqlensK.depth() == CV_64S,
+                     "GroupQueryAttention: seqlens_k must be CV_32S or CV_64S");
 
         const int B = query.size[0];
         const int S = query.size[1];
@@ -155,6 +166,7 @@ public:
                 if (seqlensK.depth() == CV_32S) sk = seqlensK.ptr<int32_t>()[b];
                 else sk = seqlensK.ptr<int64_t>()[b];
                 validLen[b] = static_cast<int>(sk) + 1;
+                CV_CheckLE(validLen[b], Skv, "GroupQueryAttention: seqlens_k exceeds total KV buffer length");
                 padOffset[b] = Skv - validLen[b];
                 int64_t base = sk - S + 1;
                 for (int i = 0; i < S; ++i) {

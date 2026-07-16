@@ -94,29 +94,29 @@ public:
             case CV_32S:
             {
                 switch (dtype) {
-                    case CV_8U: forward_impl<int32_t, uchar>(data, indices, out); break;
+                    // bool is 1 byte on every supported platform, same as CV_8U; GatherND only
+                    // moves raw elements around, so the CV_8U code path is byte-for-byte correct.
+                    case CV_8U:
+                    case CV_Bool: forward_impl<int32_t, uchar>(data, indices, out); break;
                     case CV_8S: forward_impl<int32_t, schar>(data, indices, out); break;
                     case CV_32S: forward_impl<int32_t, int32_t>(data, indices, out); break;
                     case CV_16F: forward_impl<int32_t, int16_t>(data, indices, out); break;
                     case CV_32F: forward_impl<int32_t, float>(data, indices, out); break;
                     case CV_64F: forward_impl<int32_t, double>(data, indices, out); break;
-                    // bool is 1 byte on every supported platform, same as CV_8U; GatherND only
-                    // moves raw elements around, so the CV_8U code path is byte-for-byte correct.
-                    case CV_Bool: forward_impl<int32_t, uchar>(data, indices, out); break;
                     default: CV_Error(Error::StsNotImplemented, "Unsupported data type");
                 }
             } break;
             case CV_64S:
             {
                 switch (dtype) {
-                    case CV_8U: forward_impl<int64_t, uchar>(data, indices, out); break;
+                    case CV_8U:
+                    case CV_Bool: forward_impl<int64_t, uchar>(data, indices, out); break;
                     case CV_8S: forward_impl<int64_t, schar>(data, indices, out); break;
                     case CV_32S: forward_impl<int64_t, int32_t>(data, indices, out); break;
                     case CV_16F: forward_impl<int64_t, int16_t>(data, indices, out); break;
                     case CV_32F: forward_impl<int64_t, float>(data, indices, out); break;
                     case CV_64F: forward_impl<int64_t, double>(data, indices, out); break;
                     case CV_64S: forward_impl<int64_t, int64_t>(data, indices, out); break;
-                    case CV_Bool: forward_impl<int64_t, uchar>(data, indices, out); break;
                     default: CV_Error(Error::StsNotImplemented, "Unsupported data type");
                 }
             } break;

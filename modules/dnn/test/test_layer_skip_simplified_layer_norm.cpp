@@ -102,7 +102,7 @@ TEST(SkipSimplifiedLayerNormalizationLayer, WithBiasAndNonUniformGamma)
     Mat input = makeMat({1, 1, 4}, {1.f, 2.f, 3.f, 4.f});
     Mat skip  = makeMat({1, 1, 4}, {0.1f, 0.2f, 0.3f, 0.4f});
     Mat gamma = makeMat({4}, {2.f, 0.5f, 1.f, 3.f});
-    Mat bias  = makeMat({1, 1, 4}, {0.01f, 0.02f, 0.03f, 0.04f});
+    Mat bias  = makeMat({4}, {0.01f, 0.02f, 0.03f, 0.04f});
 
     std::vector<Mat> inputs = {input, skip, gamma, bias};
     std::vector<Mat> outputs;

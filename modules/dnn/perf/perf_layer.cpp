@@ -781,6 +781,84 @@ PERF_TEST_P_(Layer_Attention, VisionTransformer) {
     test_layer({1, 197, 768}, {768, 768, 768}, 12);
 }
 
+struct Layer_GroupQueryAttention : public TestBaseWithParam<tuple<Backend, Target>> {
+    void test_layer(int B, int S, int Sp, int num_heads, int kv_num_heads, int D) {
+        int backendId = get<0>(GetParam());
+        int targetId = get<1>(GetParam());
+
+        int Skv = Sp + S;
+
+        Mat query(std::vector<int>{B, S, num_heads * D}, CV_32F);
+        Mat key(std::vector<int>{B, S, kv_num_heads * D}, CV_32F);
+        Mat value(std::vector<int>{B, S, kv_num_heads * D}, CV_32F);
+        // A degenerate 4D Mat with a zero-sized dim doesn't round-trip cleanly, so mirror
+        // the accuracy test's convention: default-constructed (dims != 4) Mat means no cache.
+        Mat pastKey, pastValue;
+        if (Sp > 0) {
+            pastKey.create(std::vector<int>{B, kv_num_heads, Sp, D}, CV_32F);
+            pastValue.create(std::vector<int>{B, kv_num_heads, Sp, D}, CV_32F);
+            randu(pastKey, 0.f, 1.f);
+            randu(pastValue, 0.f, 1.f);
+        }
+        Mat seqlensK(std::vector<int>{B}, CV_32S, Scalar(Skv - 1));
+        Mat totalSeqLen(std::vector<int>{1}, CV_32S, Scalar(Skv));
+        Mat cosCache(std::vector<int>{Skv, D / 2}, CV_32F);
+        Mat sinCache(std::vector<int>{Skv, D / 2}, CV_32F);
+
+        randu(query, 0.f, 1.f);
+        randu(key, 0.f, 1.f);
+        randu(value, 0.f, 1.f);
+        randu(cosCache, -1.f, 1.f);
+        randu(sinCache, -1.f, 1.f);
+
+        LayerParams lp;
+        lp.type = "GroupQueryAttention";
+        lp.name = "testLayer";
+        lp.set("num_heads", num_heads);
+        lp.set("kv_num_heads", kv_num_heads);
+
+        Net net;
+        int id = net.addLayerToPrev(lp.name, lp.type, lp);
+        for (int i = 0; i < 9; ++i)
+            net.connect(0, i, id, i);
+
+        std::vector<std::string> input_names{
+            "query", "key", "value", "past_key", "past_value",
+            "seqlens_k", "total_sequence_length", "cos_cache", "sin_cache"};
+        net.setInputsNames(input_names);
+        net.setInput(query, input_names[0]);
+        net.setInput(key, input_names[1]);
+        net.setInput(value, input_names[2]);
+        net.setInput(pastKey, input_names[3]);
+        net.setInput(pastValue, input_names[4]);
+        net.setInput(seqlensK, input_names[5]);
+        net.setInput(totalSeqLen, input_names[6]);
+        net.setInput(cosCache, input_names[7]);
+        net.setInput(sinCache, input_names[8]);
+
+        net.setPreferableBackend(backendId);
+        net.setPreferableTarget(targetId);
+        Mat out = net.forward();
+
+        TEST_CYCLE()
+        {
+            Mat res = net.forward();
+        }
+
+        SANITY_CHECK_NOTHING();
+    }
+};
+
+// num_heads == kv_num_heads (MHA-equivalent), short past cache (prefill-like).
+PERF_TEST_P_(Layer_GroupQueryAttention, MHA_ShortCache) {
+    test_layer(/*B*/1, /*S*/512, /*Sp*/1, /*num_heads*/32, /*kv_num_heads*/32, /*D*/128);
+}
+
+// kv_num_heads < num_heads (true GQA), with a past KV cache (decode step).
+PERF_TEST_P_(Layer_GroupQueryAttention, Grouped_WithCache) {
+    test_layer(/*B*/1, /*S*/1, /*Sp*/2048, /*num_heads*/32, /*kv_num_heads*/8, /*D*/128);
+}
+
 struct Layer_GroupNorm : public TestBaseWithParam<tuple<Backend, Target> >
 {
     void test_layer(const std::vector<int>& x_shape, int num_groups)
@@ -854,6 +932,7 @@ INSTANTIATE_TEST_CASE_P(/**/, Layer_LayerNormExpanded, testing::Values(std::make
 INSTANTIATE_TEST_CASE_P(/**/, Layer_GatherElements, testing::Values(std::make_tuple(DNN_BACKEND_OPENCV, DNN_TARGET_CPU)));
 INSTANTIATE_TEST_CASE_P(/**/, Layer_InstanceNorm, testing::Values(std::make_tuple(DNN_BACKEND_OPENCV, DNN_TARGET_CPU)));
 INSTANTIATE_TEST_CASE_P(/**/, Layer_Attention, testing::Values(std::make_tuple(DNN_BACKEND_OPENCV, DNN_TARGET_CPU)));
+INSTANTIATE_TEST_CASE_P(/**/, Layer_GroupQueryAttention, testing::Values(std::make_tuple(DNN_BACKEND_OPENCV, DNN_TARGET_CPU)));
 INSTANTIATE_TEST_CASE_P(/**/, Layer_GroupNorm, testing::Values(std::make_tuple(DNN_BACKEND_OPENCV, DNN_TARGET_CPU)));
 
 typedef TestBaseWithParam<tuple<Vec4i, int, bool, tuple<Backend, Target> > > Layer_FullyConnected;
