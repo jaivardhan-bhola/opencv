@@ -275,7 +275,7 @@ static void registerDefaultTokenizers() {
             std::unordered_set<std::string> special;
             if (model_type == "gpt2" || model_type == "gpt4") {
                 core = buildTokenizerFromJson(model_type, tok_json);
-            } else if (model_type == "qwen2" || model_type == "qwen2.5") {
+            } else if (model_type == "qwen2" || model_type == "qwen2.5" || model_type == "vlm-ocr") {
                 core = buildTokenizerFromJson(model_type, tok_json, &special);
             } else {
                 CV_Error(cv::Error::StsError, "Unsupported model_type for BPE: " + model_type);
@@ -326,7 +326,7 @@ CoreBPE buildTokenizerFromJson(const std::string& model_type, const std::string&
 
     std::string pattern;
     std::unordered_set<std::string> skip_tokens;
-    if (model_type == "gpt2" || model_type == "r50k_base") {
+    if (model_type == "gpt2" || model_type == "r50k_base" || model_type == "vlm-ocr") {
         pattern = R50K_UTF8;
         skip_tokens.insert("<|endoftext|>");
     } else if (model_type == "gpt4" || model_type == "cl100k_base") {
@@ -335,7 +335,7 @@ CoreBPE buildTokenizerFromJson(const std::string& model_type, const std::string&
         pattern = QWEN2_5;
     } else {
         CV_Error(cv::Error::StsError,
-            "Unsupported model_type: " + model_type + " (expected gpt2/r50k_base, gpt4/cl100k_base, or qwen2/qwen2.5)");
+            "Unsupported model_type: " + model_type + " (expected gpt2/r50k_base, gpt4/cl100k_base, qwen2/qwen2.5, or vlm-ocr)");
     }
 
     auto token_to_bytes = [&](const std::string& token_utf8) -> std::vector<uint8_t> {
