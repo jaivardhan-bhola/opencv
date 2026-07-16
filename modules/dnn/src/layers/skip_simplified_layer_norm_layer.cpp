@@ -1,16 +1,14 @@
 // This file is part of OpenCV project.
 // It is subject to the license terms in the LICENSE file found in the top-level directory
 // of this distribution and at http://opencv.org/license.html.
+// Copyright (C) 2026, BigVision LLC, all rights reserved.
+// Third party copyrights are property of their respective owners.
 
 #include "../precomp.hpp"
 
 namespace cv { namespace dnn {
 
-// com.microsoft.SkipSimplifiedLayerNormalization: sum = input + skip [+ bias];
-// output = RMSNorm(sum) * gamma; also emits sum as input_skip_bias_sum (the residual
-// carried into the next block). The RMSNorm math itself is delegated to the existing,
-// already-tested RMSNormLayer (same op used for the standalone RMSNormalization/
-// SimplifiedLayerNormalization nodes elsewhere in this graph).
+// Operator spec: https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.SkipSimplifiedLayerNormalization
 class SkipSimplifiedLayerNormalizationLayerImpl CV_FINAL : public SkipSimplifiedLayerNormalizationLayer {
 public:
     float epsilon;
@@ -38,10 +36,6 @@ public:
                                  std::vector<MatShape>& outputs,
                                  std::vector<MatShape>& internals) const CV_OVERRIDE {
         CV_CheckGE((int)inputs.size(), 3, "SkipSimplifiedLayerNormalization: expects input, skip, gamma [, bias]");
-        // All declared outputs (output, mean, inv_std_var, input_skip_bias_sum) share
-        // input's shape; only outputs[0] (normalized) and outputs.back() (residual sum)
-        // are ever actually used downstream -- the middle ones (mean/inv_std_var), if
-        // requested at all, are unused placeholders.
         outputs.assign(requiredOutputs, inputs[0]);
         internals.clear();
         return false;
@@ -64,12 +58,9 @@ public:
         const Mat& gamma = inputs[2];
         const bool hasBias = inputs.size() > 3 && !inputs[3].empty();
 
-        Mat& sumOut = outputs.back();  // input_skip_bias_sum
+        Mat& sumOut = outputs.back();
         cv::add(input, skip, sumOut);
         if (hasBias) {
-            // bias is (hidden_size,), sumOut is (..., hidden_size) -- cv::add's scalar
-            // broadcast only covers checkScalar()'s Size(1,1)/Size(1,cn)/Size(cn,1) cases,
-            // none of which match a real hidden_size-wide bias, so broadcast explicitly.
             CV_CheckEQ((int)inputs[3].total(), (int)gamma.total(),
                        "SkipSimplifiedLayerNormalization: bias/gamma size mismatch");
             const int hidden = (int)gamma.total();

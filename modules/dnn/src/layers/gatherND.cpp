@@ -94,8 +94,6 @@ public:
             case CV_32S:
             {
                 switch (dtype) {
-                    // bool is 1 byte on every supported platform, same as CV_8U; GatherND only
-                    // moves raw elements around, so the CV_8U code path is byte-for-byte correct.
                     case CV_8U:
                     case CV_Bool: forward_impl<int32_t, uchar>(data, indices, out); break;
                     case CV_8S: forward_impl<int32_t, schar>(data, indices, out); break;

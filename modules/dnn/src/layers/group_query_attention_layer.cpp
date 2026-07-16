@@ -1,6 +1,8 @@
 // This file is part of OpenCV project.
 // It is subject to the license terms in the LICENSE file found in the top-level directory
 // of this distribution and at http://opencv.org/license.html.
+// Copyright (C) 2026, BigVision LLC, all rights reserved.
+// Third party copyrights are property of their respective owners.
 
 #include "../precomp.hpp"
 #include <opencv2/dnn/shape_utils.hpp>
@@ -8,19 +10,7 @@
 
 namespace cv { namespace dnn {
 
-// com.microsoft.GroupQueryAttention (fused causal GQA + internal RoPE + KV-cache concat).
-// https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.GroupQueryAttention
-//
-// Inputs: query (B,S,H*D), key (B,S,kvH*D), value (B,S,kvH*D),
-//         past_key (B,kvH,Sp,D) [optional], past_value (B,kvH,Sp,D) [optional],
-//         seqlens_k (B) [int, = valid_length-1 per batch row], total_sequence_length (scalar, unused here --
-//         derived directly from past/new seq lengths instead), cos_cache (max_pos, D/2), sin_cache (max_pos, D/2).
-// Outputs: output (B,S,H*D), present_key (B,kvH,Sp+S,D), present_value (B,kvH,Sp+S,D).
-//
-// seqlens_k/attention_mask convention: ORT's GQA expects any padding to be at the FRONT of the
-// KV buffer (left-padding) -- valid_length = seqlens_k[b]+1, padding_offset = total_kv_len -
-// valid_length. A query at new-sequence index i has absolute (unpadded) position
-// valid_length - S + i, used both for its RoPE angle and as the causal attention boundary.
+// Operator spec: https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.GroupQueryAttention
 class GroupQueryAttentionLayerImpl CV_FINAL : public GroupQueryAttentionLayer {
 public:
     int num_heads = 0;
@@ -80,7 +70,6 @@ public:
         return false;
     }
 
-    // (B,S,nH*D) -> flat (B,nH,S,D) row-major buffer.
     static void splitHeads(const Mat& x, int B, int S, int nH, int D, std::vector<float>& out) {
         CV_Assert(x.isContinuous());
         out.resize((size_t)B * nH * S * D);
@@ -96,8 +85,6 @@ public:
         }
     }
 
-    // Applies RoPE in place to a flat (B,nH,S,D) buffer by delegating to the existing,
-    // already-tested RotaryEmbeddingLayer (reused via its public forward() API).
     void applyRotary(std::vector<float>& buf, int B, int nH, int S, int D,
                      const Mat& cosCache, const Mat& sinCache, const Mat& positionIds) const {
         int sizes4[4] = {B, nH, S, D};
@@ -156,7 +143,6 @@ public:
         splitHeads(key, B, S, kv_num_heads, D, Knew);
         splitHeads(value, B, S, kv_num_heads, D, Vnew);
 
-        // Absolute (unpadded) position of each new token, per batch: seqlens_k[b] - S + 1 + i.
         Mat positionIds(std::vector<int>{B, S}, CV_MAKETYPE(CV_64S, 1));
         std::vector<int> validLen(B), padOffset(B);
         {
@@ -181,7 +167,6 @@ public:
             applyRotary(Knew, B, kv_num_heads, S, D, cosCache, sinCache, positionIds);
         }
 
-        // present_key/value = concat(past, new) along the sequence axis, per (b, kv-head).
         Mat& presentKey = outputs[1];
         Mat& presentValue = outputs[2];
         {
@@ -210,7 +195,6 @@ public:
 
         const float effScale = (scale > 0.f) ? scale : (1.f / std::sqrt(static_cast<float>(D)));
 
-        // Causal grouped-query attention: query head h reads KV head h / groupSize.
         std::vector<float> outHeadsMajor((size_t)B * num_heads * S * D);
         parallel_for_(Range(0, B * num_heads), [&](const Range& r) {
             std::vector<float> scores(Skv);
@@ -227,9 +211,9 @@ public:
                 float* outBh = outHeadsMajor.data() + (size_t)bh * S * D;
 
                 for (int i = 0; i < S; ++i) {
-                    const int queryPos = validLenB - S + i;             // absolute, unpadded position
-                    int hi = padOffB + queryPos;                        // inclusive causal boundary (buffer index)
-                    int lo = padOffB;                                   // start of valid (non-padding) region
+                    const int queryPos = validLenB - S + i;
+                    int hi = padOffB + queryPos;
+                    int lo = padOffB;
                     if (local_window_size >= 0) lo = std::max(lo, hi - local_window_size);
 
                     const float* Qi = Qbh + (size_t)i * D;
@@ -261,7 +245,6 @@ public:
             }
         });
 
-        // (B,H,S,D) -> (B,S,H*D)
         Mat& output = outputs[0];
         float* outPtr = output.ptr<float>();
         for (int b = 0; b < B; ++b) {

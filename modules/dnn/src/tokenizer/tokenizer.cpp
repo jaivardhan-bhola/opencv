@@ -276,9 +276,6 @@ static void registerDefaultTokenizers() {
             if (model_type == "gpt2" || model_type == "gpt4") {
                 core = buildTokenizerFromJson(model_type, tok_json);
             } else if (model_type == "qwen2" || model_type == "qwen2.5" || model_type == "vlm-ocr") {
-                // TODO: vlm-ocr (GraniteDocling) is grouped here only to get `special` populated;
-                // verify against GraniteDocling's actual tokenizer.json that this and the
-                // gpt2/r50k_base grouping below (regex pattern + endoftext skip token) are both correct.
                 core = buildTokenizerFromJson(model_type, tok_json, &special);
             } else {
                 CV_Error(cv::Error::StsError, "Unsupported model_type for BPE: " + model_type);
@@ -330,8 +327,6 @@ CoreBPE buildTokenizerFromJson(const std::string& model_type, const std::string&
     std::string pattern;
     std::unordered_set<std::string> skip_tokens;
     if (model_type == "gpt2" || model_type == "r50k_base" || model_type == "vlm-ocr") {
-        // TODO: verify vlm-ocr (GraniteDocling) actually uses the gpt2/r50k_base regex
-        // split pattern and <|endoftext|> skip token -- see the note in registerDefaultTokenizers().
         pattern = R50K_UTF8;
         skip_tokens.insert("<|endoftext|>");
     } else if (model_type == "gpt4" || model_type == "cl100k_base") {

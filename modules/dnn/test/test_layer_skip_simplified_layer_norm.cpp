@@ -1,6 +1,8 @@
 // This file is part of OpenCV project.
 // It is subject to the license terms in the LICENSE file found in the top-level directory
 // of this distribution and at http://opencv.org/license.html.
+// Copyright (C) 2026, BigVision LLC, all rights reserved.
+// Third party copyrights are property of their respective owners.
 
 #include "test_precomp.hpp"
 #include <opencv2/dnn/shape_utils.hpp>
@@ -31,10 +33,6 @@ static Ptr<Layer> createSkipNorm(float epsilon = 1e-5f)
     return layer;
 }
 
-// Unlike the generic runLayer() helper (which always requests 0 outputs), this
-// op's getMemoryShapes()/getTypes() size their output list directly from
-// requiredOutputs, so the test controls how many of the (up to 4) declared
-// outputs -- output, mean, inv_std_var, input_skip_bias_sum -- get materialized.
 static void runSkipNorm(Ptr<Layer>& layer, std::vector<Mat>& inputs,
                          std::vector<Mat>& outputs, int requiredOutputs)
 {
@@ -60,7 +58,6 @@ static void runSkipNorm(Ptr<Layer>& layer, std::vector<Mat>& inputs,
     layer->forward(inputs, outputs, internals);
 }
 
-// output = (input + skip) / sqrt(mean((input+skip)^2) + eps) * gamma
 TEST(SkipSimplifiedLayerNormalizationLayer, BasicNoBias)
 {
     const float epsilon = 1e-5f;
@@ -129,7 +126,6 @@ TEST(SkipSimplifiedLayerNormalizationLayer, WithBiasAndNonUniformGamma)
     normAssert(expectedSumMat, outputs[1], "input_skip_bias_sum");
 }
 
-// Each row along the leading (non-normalized) axis must be normalized independently.
 TEST(SkipSimplifiedLayerNormalizationLayer, RowsNormalizedIndependently)
 {
     const float epsilon = 1e-5f;
@@ -171,8 +167,6 @@ TEST(SkipSimplifiedLayerNormalizationLayer, RowsNormalizedIndependently)
     normAssert(expectedSumMat, outputs[1], "input_skip_bias_sum");
 }
 
-// With all 4 ONNX-declared outputs requested, the residual sum must land in the
-// *last* output regardless of the (unused) mean/inv_std_var placeholders in between.
 TEST(SkipSimplifiedLayerNormalizationLayer, FourOutputsResidualSumIsLast)
 {
     const float epsilon = 1e-5f;
@@ -209,7 +203,7 @@ TEST(SkipSimplifiedLayerNormalizationLayer, FourOutputsResidualSumIsLast)
 TEST(SkipSimplifiedLayerNormalizationLayer, RequiresAtLeastThreeInputs)
 {
     Ptr<Layer> layer = createSkipNorm();
-    std::vector<MatShape> inputs = { MatShape({1, 1, 4}), MatShape({1, 1, 4}) }; // missing gamma
+    std::vector<MatShape> inputs = { MatShape({1, 1, 4}), MatShape({1, 1, 4}) };
     std::vector<MatShape> outputs, internals;
     EXPECT_ANY_THROW(layer->getMemoryShapes(inputs, 2, outputs, internals));
 }

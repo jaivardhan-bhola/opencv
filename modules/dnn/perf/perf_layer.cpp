@@ -503,7 +503,6 @@ struct Layer_SkipSimplifiedLayerNorm : public TestBaseWithParam<tuple<Backend, T
         if (hasBias)
             net.connect(0, 3, id, 3);
 
-        // warmup
         {
             std::vector<String> inpNames{"input", "skip", "gamma"};
             if (hasBias) inpNames.push_back("bias");
@@ -849,8 +848,6 @@ struct Layer_GroupQueryAttention : public TestBaseWithParam<tuple<Backend, Targe
         Mat query(std::vector<int>{B, S, num_heads * D}, CV_32F);
         Mat key(std::vector<int>{B, S, kv_num_heads * D}, CV_32F);
         Mat value(std::vector<int>{B, S, kv_num_heads * D}, CV_32F);
-        // A degenerate 4D Mat with a zero-sized dim doesn't round-trip cleanly, so mirror
-        // the accuracy test's convention: default-constructed (dims != 4) Mat means no cache.
         Mat pastKey, pastValue;
         if (Sp > 0) {
             pastKey.create(std::vector<int>{B, kv_num_heads, Sp, D}, CV_32F);
@@ -907,12 +904,10 @@ struct Layer_GroupQueryAttention : public TestBaseWithParam<tuple<Backend, Targe
     }
 };
 
-// num_heads == kv_num_heads (MHA-equivalent), short past cache (prefill-like).
 PERF_TEST_P_(Layer_GroupQueryAttention, MHA_ShortCache) {
     test_layer(/*B*/1, /*S*/512, /*Sp*/1, /*num_heads*/32, /*kv_num_heads*/32, /*D*/128);
 }
 
-// kv_num_heads < num_heads (true GQA), with a past KV cache (decode step).
 PERF_TEST_P_(Layer_GroupQueryAttention, Grouped_WithCache) {
     test_layer(/*B*/1, /*S*/1, /*Sp*/2048, /*num_heads*/32, /*kv_num_heads*/8, /*D*/128);
 }
