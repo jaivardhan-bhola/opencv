@@ -74,15 +74,17 @@ public:
         CV_Assert(x.isContinuous());
         out.resize((size_t)B * nH * S * D);
         const float* src = x.ptr<float>();
-        for (int b = 0; b < B; ++b) {
-            for (int s = 0; s < S; ++s) {
-                const float* row = src + ((size_t)b * S + s) * nH * D;
+        float* dst = out.data();
+        parallel_for_(Range(0, B * S), [&](const Range& r) {
+            for (int bs = r.start; bs < r.end; ++bs) {
+                const int b = bs / S;
+                const int s = bs % S;
+                const float* row = src + (size_t)bs * nH * D;
                 for (int h = 0; h < nH; ++h) {
-                    float* dst = out.data() + (((size_t)b * nH + h) * S + s) * D;
-                    std::memcpy(dst, row + (size_t)h * D, sizeof(float) * D);
+                    std::memcpy(dst + (((size_t)b * nH + h) * S + s) * D, row + (size_t)h * D, sizeof(float) * D);
                 }
             }
-        }
+        });
     }
 
     void applyRotary(std::vector<float>& buf, int B, int nH, int S, int D,
