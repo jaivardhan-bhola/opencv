@@ -1913,6 +1913,23 @@ CV__DNN_INLINE_NS_BEGIN
         static Ptr<RotaryEmbeddingLayer> create(const LayerParams &params);
     };
 
+    // com.microsoft.GroupQueryAttention: fused causal grouped-query attention with
+    // internal rotary embedding application and KV-cache concatenation.
+    // https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.GroupQueryAttention
+    class CV_EXPORTS GroupQueryAttentionLayer : public Layer {
+     public:
+        static Ptr<GroupQueryAttentionLayer> create(const LayerParams &params);
+    };
+
+    // com.microsoft.SkipSimplifiedLayerNormalization: fused residual-add + RMSNorm
+    // (input + skip [+ bias] -> sum; RMSNorm(sum) * gamma -> output; sum is also
+    // emitted as input_skip_bias_sum, the residual carried into the next block).
+    // https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.SkipSimplifiedLayerNormalization
+    class CV_EXPORTS SkipSimplifiedLayerNormalizationLayer : public Layer {
+     public:
+        static Ptr<SkipSimplifiedLayerNormalizationLayer> create(const LayerParams &params);
+    };
+
     class CV_EXPORTS AttentionOnnxAiLayer : public Layer {
      public:
         int kv_num_heads;

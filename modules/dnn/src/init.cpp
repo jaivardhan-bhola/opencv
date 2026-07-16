@@ -217,6 +217,8 @@ void initializeLayerFactory()
     CV_DNN_REGISTER_LAYER_CLASS(SDPA,            SDPALayer);
     CV_DNN_REGISTER_LAYER_CLASS(AttentionOnnxAi, AttentionOnnxAiLayer);
     CV_DNN_REGISTER_LAYER_CLASS(RotaryEmbedding, RotaryEmbeddingLayer);
+    CV_DNN_REGISTER_LAYER_CLASS(GroupQueryAttention, GroupQueryAttentionLayer);
+    CV_DNN_REGISTER_LAYER_CLASS(SkipSimplifiedLayerNormalization, SkipSimplifiedLayerNormalizationLayer);
     CV_DNN_REGISTER_LAYER_CLASS(GroupNormalization, GroupNormLayer);
     CV_DNN_REGISTER_LAYER_CLASS(Cast,           CastLayer);
     CV_DNN_REGISTER_LAYER_CLASS(Cast2,          Cast2Layer);
