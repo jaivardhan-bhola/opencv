@@ -187,6 +187,7 @@ public:
         {
             float* pk = presentKey.ptr<float>();
             float* pv = presentValue.ptr<float>();
+            if (Sp > 0) CV_Assert(pastKey.isContinuous() && pastValue.isContinuous());
             const float* pastKeyPtr = (Sp > 0) ? pastKey.ptr<float>() : nullptr;
             const float* pastValuePtr = (Sp > 0) ? pastValue.ptr<float>() : nullptr;
             for (int b = 0; b < B; ++b) {
