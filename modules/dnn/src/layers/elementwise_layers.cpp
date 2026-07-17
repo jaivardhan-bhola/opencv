@@ -113,6 +113,15 @@ struct ElementWiseIntDispatch
     static inline bool apply(const Func&, const Mat&, Mat&) { return false; }
 };
 
+// Extra integer MatTypes a specific Func supports beyond the CV_32F/CV_64F/CV_8S/CV_8U/CV_64S
+// that Layer::getTypes() allows by default; only Funcs with an ElementWiseIntDispatch
+// specialization that actually consumes these types should opt in here.
+template<typename Func>
+struct ElementWiseExtraTypes
+{
+    static inline bool allowed(int) { return false; }
+};
+
 template<typename Func>
 class ElementWiseLayer : public Func::Layer
 {
@@ -221,6 +230,23 @@ public:
     {
         Layer::getMemoryShapes(inputs, requiredOutputs, outputs, internals);
         return true;
+    }
+
+    void getTypes(const std::vector<MatType>& inputs,
+                  const int requiredOutputs,
+                  const int requiredInternals,
+                  std::vector<MatType>& outputs,
+                  std::vector<MatType>& internals) const CV_OVERRIDE
+    {
+        CV_Assert(inputs.size());
+        for (auto input : inputs)
+            if (!ElementWiseExtraTypes<Func>::allowed(input))
+            {
+                Layer::getTypes(inputs, requiredOutputs, requiredInternals, outputs, internals);
+                return;
+            }
+        outputs.assign(requiredOutputs, inputs[0]);
+        internals.assign(requiredInternals, inputs[0]);
     }
 
     void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
@@ -3345,6 +3371,38 @@ struct SignFunctor : public BaseDefaultFunctor<SignFunctor>
 template<>
 const char* const SignFunctor::BaseDefaultFunctor<SignFunctor>::ocl_kernel_name = "SignForward";
 
+// ONNX Sign (https://onnx.ai/onnx/operators/onnx__Sign.html) is defined for all numeric
+// tensor types, including the integer tensors that Mod-based position-id arithmetic produces.
+template<>
+struct ElementWiseIntDispatch<SignFunctor>
+{
+    template<typename T>
+    static inline void apply_(const T* sp, T* dp, size_t n)
+    {
+        for (size_t i = 0; i < n; ++i)
+            dp[i] = sp[i] > 0 ? (T)1 : (sp[i] < 0 ? (T)-1 : (T)0);
+    }
+
+    static inline bool apply(const SignFunctor&, const Mat& src, Mat& dst)
+    {
+        if (src.type() != dst.type())
+            return false;
+
+        const size_t n = src.total();
+        switch (src.depth())
+        {
+            case CV_32S: apply_(src.ptr<int32_t>(), dst.ptr<int32_t>(), n); return true;
+            case CV_64S: apply_(src.ptr<int64_t>(), dst.ptr<int64_t>(), n); return true;
+            default: return false;
+        }
+    }
+};
+
+template<>
+struct ElementWiseExtraTypes<SignFunctor>
+{
+    static inline bool allowed(int type) { return type == CV_32S || type == CV_64S; }
+};
 
 struct ShrinkFunctor : public BaseDefaultFunctor<ShrinkFunctor>
 {

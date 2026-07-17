@@ -1174,6 +1174,54 @@ INSTANTIATE_TEST_CASE_P(/**/, Layer_Elementwise,
                                               /* withWebnn= */           false,
                                               /* withCann= */            false));
 
+struct Layer_Sign : public TestBaseWithParam<tuple<Backend, Target> >
+{
+    void test_layer(int matType, const std::vector<int>& input_shape)
+    {
+        int backendId = get<0>(GetParam());
+        int targetId = get<1>(GetParam());
+
+        if (backendId == DNN_BACKEND_CUDA && matType != CV_32F)
+            throw SkipTestException("The CUDA SignOp only supports floating point tensors.");
+
+        Mat input(input_shape, matType);
+        randu(input, -100, 100);
+
+        LayerParams lp;
+        lp.type = "Sign";
+        lp.name = "PerfLayer/Sign";
+
+        Net net;
+        net.addLayerToPrev(lp.name, lp.type, lp);
+
+        {
+            net.setInput(input);
+            net.setPreferableBackend(backendId);
+            net.setPreferableTarget(targetId);
+            net.forward();
+        }
+
+        TEST_CYCLE()
+        {
+            net.forward();
+        }
+
+        SANITY_CHECK_NOTHING();
+    }
+};
+
+PERF_TEST_P_(Layer_Sign, Float) {
+    test_layer(CV_32F, {2, 32, 416, 416});
+}
+PERF_TEST_P_(Layer_Sign, Int32) {
+    test_layer(CV_32S, {2, 32, 416, 416});
+}
+PERF_TEST_P_(Layer_Sign, Int64) {
+    test_layer(CV_64S, {2, 32, 416, 416});
+}
+
+INSTANTIATE_TEST_CASE_P(/**/, Layer_Sign, dnnBackendsAndTargets());
+
 struct Layer_TopK : public TestBaseWithParam<tuple<Backend, Target>> {
     void test_layer(const std::vector<int> &input_shape, const int K, const int axis) {
         int backend_id = get<0>(GetParam());
