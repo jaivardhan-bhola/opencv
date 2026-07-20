@@ -105,7 +105,7 @@ public:
             Mat(std::vector<int>{B, S, dhalf}, CV_32F),
         };
         rope->forward(ropeInputs, ropeOutputs, ropeInternals);
-        std::memcpy(buf.data(), ropeOutputs[0].ptr<float>(), sizeof(float) * buf.size());
+        ropeOutputs[0].copyTo(x);
     }
 
     void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE {
@@ -151,8 +151,11 @@ public:
             int64_t* posPtr = positionIds.ptr<int64_t>();
             for (int b = 0; b < B; ++b) {
                 int64_t sk = 0;
-                if (seqlensK.depth() == CV_32S) sk = seqlensK.ptr<int32_t>()[b];
-                else sk = seqlensK.ptr<int64_t>()[b];
+                if (seqlensK.depth() == CV_32S) {
+                    sk = seqlensK.ptr<int32_t>()[b];
+                } else {
+                    sk = seqlensK.ptr<int64_t>()[b];
+                }
                 validLen[b] = static_cast<int>(sk) + 1;
                 CV_CheckLE(validLen[b], Skv, "GroupQueryAttention: seqlens_k exceeds total KV buffer length");
                 padOffset[b] = Skv - validLen[b];
@@ -249,15 +252,17 @@ public:
 
         Mat& output = outputs[0];
         float* outPtr = output.ptr<float>();
-        for (int b = 0; b < B; ++b) {
-            for (int h = 0; h < num_heads; ++h) {
-                const float* src = outHeadsMajor.data() + (((size_t)b * num_heads + h) * S) * D;
+        parallel_for_(Range(0, B * num_heads), [&](const Range& r) {
+            for (int bh = r.start; bh < r.end; ++bh) {
+                const int b = bh / num_heads;
+                const int h = bh % num_heads;
+                const float* src = outHeadsMajor.data() + (size_t)bh * S * D;
                 for (int s = 0; s < S; ++s) {
                     float* dst = outPtr + (((size_t)b * S + s) * num_heads + h) * D;
                     std::memcpy(dst, src + (size_t)s * D, sizeof(float) * D);
                 }
             }
-        }
+        });
     }
 };
 

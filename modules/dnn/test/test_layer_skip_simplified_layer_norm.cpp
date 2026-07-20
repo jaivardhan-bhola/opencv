@@ -5,204 +5,87 @@
 // Third party copyrights are property of their respective owners.
 
 #include "test_precomp.hpp"
+#include "npy_blob.hpp"
 #include <opencv2/dnn/shape_utils.hpp>
 #include <opencv2/dnn/all_layers.hpp>
 
-#include <cmath>
-
 namespace opencv_test { namespace {
 
-static Mat makeMat(std::initializer_list<int> shape, std::initializer_list<float> data)
+// SkipSimplifiedLayerNormalization (com.microsoft) is only supported by the new
+// DNN engine's ONNX importer, so these tests are skipped when the classic engine
+// is forced.
+static bool skipIfClassicEngineForced()
 {
-    std::vector<int> shp(shape);
-    std::vector<float> buf(data);
-    size_t total = 1;
-    for (int s : shp) total *= (size_t)s;
-    CV_Assert(total == buf.size());
-    return Mat((int)shp.size(), shp.data(), CV_32F, buf.data()).clone();
-}
-
-static Ptr<Layer> createSkipNorm(float epsilon = 1e-5f)
-{
-    LayerParams lp;
-    lp.type = "SkipSimplifiedLayerNormalization";
-    lp.name = "test_skip_norm";
-    lp.set("epsilon", epsilon);
-    Ptr<Layer> layer = LayerFactory::createLayerInstance("SkipSimplifiedLayerNormalization", lp);
-    CV_Assert(layer);
-    return layer;
-}
-
-static void runSkipNorm(Ptr<Layer>& layer, std::vector<Mat>& inputs,
-                         std::vector<Mat>& outputs, int requiredOutputs)
-{
-    std::vector<MatShape> inShapes, outShapes, intShapes;
-    std::vector<cv::dnn::MatType> inTypes, outTypes, intTypes;
-    for (auto& m : inputs)
+    auto engine_forced = static_cast<cv::dnn::EngineType>(
+        cv::utils::getConfigurationParameterSizeT("OPENCV_FORCE_DNN_ENGINE", cv::dnn::ENGINE_AUTO));
+    if (engine_forced == cv::dnn::ENGINE_CLASSIC)
     {
-        inShapes.push_back(shape(m));
-        inTypes.push_back(cv::dnn::MatType(m.type()));
+        applyTestTag(CV_TEST_TAG_DNN_SKIP_PARSER);
+        return true;
     }
-
-    layer->getMemoryShapes(inShapes, requiredOutputs, outShapes, intShapes);
-    layer->getTypes(inTypes, (int)outShapes.size(), (int)intShapes.size(), outTypes, intTypes);
-
-    outputs.clear();
-    for (size_t i = 0; i < outShapes.size(); ++i)
-        outputs.push_back(Mat(outShapes[i], outTypes[i]));
-    std::vector<Mat> internals;
-    for (size_t i = 0; i < intShapes.size(); ++i)
-        internals.push_back(Mat(intShapes[i], intTypes[i]));
-
-    layer->finalize(inputs, outputs);
-    layer->forward(inputs, outputs, internals);
+    return false;
 }
 
-TEST(SkipSimplifiedLayerNormalizationLayer, BasicNoBias)
+// Covers no-bias input, uniform gamma, and independent normalization across
+// multiple rows (batch/sequence), requesting only the 2 outputs that are used
+// downstream (output, input_skip_bias_sum).
+TEST(SkipSimplifiedLayerNormalizationLayer, ONNXModel_NoBiasMultiRow)
 {
-    const float epsilon = 1e-5f;
-    Ptr<Layer> layer = createSkipNorm(epsilon);
+    if (skipIfClassicEngineForced()) return;
 
-    Mat input = makeMat({1, 1, 4}, {1.f, 2.f, 3.f, 4.f});
-    Mat skip  = makeMat({1, 1, 4}, {0.1f, 0.2f, 0.3f, 0.4f});
-    Mat gamma = makeMat({4}, {1.f, 1.f, 1.f, 1.f});
+    const std::string basename = "skip_simplified_layer_norm";
+    Net net = readNetFromONNX(findDataFile("dnn/onnx/models/" + basename + ".onnx", true), cv::dnn::ENGINE_NEW);
+    ASSERT_FALSE(net.empty());
 
-    std::vector<Mat> inputs = {input, skip, gamma};
-    std::vector<Mat> outputs;
-    runSkipNorm(layer, inputs, outputs, 2);
-    ASSERT_EQ(outputs.size(), (size_t)2);
+    net.setInput(blobFromNPY(findDataFile("dnn/onnx/data/input_" + basename + "_0.npy")), "input");
+    net.setInput(blobFromNPY(findDataFile("dnn/onnx/data/input_" + basename + "_1.npy")), "skip");
+    net.setInput(blobFromNPY(findDataFile("dnn/onnx/data/input_" + basename + "_2.npy")), "gamma");
 
-    float sum[4], meanSq = 0.f;
-    for (int i = 0; i < 4; ++i)
-    {
-        sum[i] = input.ptr<float>()[i] + skip.ptr<float>()[i];
-        meanSq += sum[i] * sum[i];
-    }
-    meanSq /= 4.f;
-    const float rms = std::sqrt(meanSq + epsilon);
-    float expectedOut[4];
-    for (int i = 0; i < 4; ++i)
-        expectedOut[i] = sum[i] / rms;
+    std::vector<Mat> outs;
+    net.forward(outs, std::vector<String>{"output", "input_skip_bias_sum"});
+    ASSERT_EQ(outs.size(), (size_t)2);
 
-    Mat expectedOutMat = makeMat({1, 1, 4}, {expectedOut[0], expectedOut[1], expectedOut[2], expectedOut[3]});
-    Mat expectedSumMat  = makeMat({1, 1, 4}, {sum[0], sum[1], sum[2], sum[3]});
-
-    normAssert(expectedOutMat, outputs[0], "output", 1e-4, 1e-3);
-    normAssert(expectedSumMat, outputs[1], "input_skip_bias_sum");
+    Mat refOutput = blobFromNPY(findDataFile("dnn/onnx/data/output_" + basename + "_0.npy"));
+    Mat refSum = blobFromNPY(findDataFile("dnn/onnx/data/output_" + basename + "_1.npy"));
+    normAssert(refOutput, outs[0], "output", 1e-4, 1e-3);
+    normAssert(refSum, outs[1], "input_skip_bias_sum", 1e-4, 1e-3);
 }
 
-TEST(SkipSimplifiedLayerNormalizationLayer, WithBiasAndNonUniformGamma)
+// Covers a bias input, non-uniform gamma, multiple rows, and requesting all 4
+// graph outputs (output, mean, inv_std_var, input_skip_bias_sum). mean/inv_std_var
+// aren't checked: the layer implementation allocates but never fills them.
+TEST(SkipSimplifiedLayerNormalizationLayer, ONNXModel_BiasNonUniformGammaFourOutputs)
 {
-    const float epsilon = 1e-5f;
-    Ptr<Layer> layer = createSkipNorm(epsilon);
+    if (skipIfClassicEngineForced()) return;
 
-    Mat input = makeMat({1, 1, 4}, {1.f, 2.f, 3.f, 4.f});
-    Mat skip  = makeMat({1, 1, 4}, {0.1f, 0.2f, 0.3f, 0.4f});
-    Mat gamma = makeMat({4}, {2.f, 0.5f, 1.f, 3.f});
-    Mat bias  = makeMat({4}, {0.01f, 0.02f, 0.03f, 0.04f});
+    const std::string basename = "skip_simplified_layer_norm_with_bias";
+    Net net = readNetFromONNX(findDataFile("dnn/onnx/models/" + basename + ".onnx", true), cv::dnn::ENGINE_NEW);
+    ASSERT_FALSE(net.empty());
 
-    std::vector<Mat> inputs = {input, skip, gamma, bias};
-    std::vector<Mat> outputs;
-    runSkipNorm(layer, inputs, outputs, 2);
-    ASSERT_EQ(outputs.size(), (size_t)2);
+    net.setInput(blobFromNPY(findDataFile("dnn/onnx/data/input_" + basename + "_0.npy")), "input");
+    net.setInput(blobFromNPY(findDataFile("dnn/onnx/data/input_" + basename + "_1.npy")), "skip");
+    net.setInput(blobFromNPY(findDataFile("dnn/onnx/data/input_" + basename + "_2.npy")), "gamma");
+    net.setInput(blobFromNPY(findDataFile("dnn/onnx/data/input_" + basename + "_3.npy")), "bias");
 
-    const float gammaData[4] = {2.f, 0.5f, 1.f, 3.f};
-    float sum[4], meanSq = 0.f;
-    for (int i = 0; i < 4; ++i)
-    {
-        sum[i] = input.ptr<float>()[i] + skip.ptr<float>()[i] + bias.ptr<float>()[i];
-        meanSq += sum[i] * sum[i];
-    }
-    meanSq /= 4.f;
-    const float rms = std::sqrt(meanSq + epsilon);
-    float expectedOut[4];
-    for (int i = 0; i < 4; ++i)
-        expectedOut[i] = sum[i] / rms * gammaData[i];
+    std::vector<Mat> outs;
+    net.forward(outs, std::vector<String>{"output", "mean", "inv_std_var", "input_skip_bias_sum"});
+    ASSERT_EQ(outs.size(), (size_t)4);
 
-    Mat expectedOutMat = makeMat({1, 1, 4}, {expectedOut[0], expectedOut[1], expectedOut[2], expectedOut[3]});
-    Mat expectedSumMat  = makeMat({1, 1, 4}, {sum[0], sum[1], sum[2], sum[3]});
-
-    normAssert(expectedOutMat, outputs[0], "output", 1e-4, 1e-3);
-    normAssert(expectedSumMat, outputs[1], "input_skip_bias_sum");
-}
-
-TEST(SkipSimplifiedLayerNormalizationLayer, RowsNormalizedIndependently)
-{
-    const float epsilon = 1e-5f;
-    Ptr<Layer> layer = createSkipNorm(epsilon);
-
-    Mat input = makeMat({1, 2, 3}, {1.f, 1.f, 1.f,   2.f, 0.f, 0.f});
-    Mat skip  = makeMat({1, 2, 3}, {0.f, 0.f, 0.f,   0.f, 1.f, -1.f});
-    Mat gamma = makeMat({3}, {1.f, 2.f, 3.f});
-
-    std::vector<Mat> inputs = {input, skip, gamma};
-    std::vector<Mat> outputs;
-    runSkipNorm(layer, inputs, outputs, 2);
-
-    const float gammaData[3] = {1.f, 2.f, 3.f};
-    float expectedOut[6], expectedSum[6];
-    for (int row = 0; row < 2; ++row)
-    {
-        float sum[3], meanSq = 0.f;
-        for (int i = 0; i < 3; ++i)
-        {
-            sum[i] = input.ptr<float>()[row * 3 + i] + skip.ptr<float>()[row * 3 + i];
-            meanSq += sum[i] * sum[i];
-        }
-        meanSq /= 3.f;
-        const float rms = std::sqrt(meanSq + epsilon);
-        for (int i = 0; i < 3; ++i)
-        {
-            expectedSum[row * 3 + i] = sum[i];
-            expectedOut[row * 3 + i] = sum[i] / rms * gammaData[i];
-        }
-    }
-
-    Mat expectedOutMat = makeMat({1, 2, 3},
-        {expectedOut[0], expectedOut[1], expectedOut[2], expectedOut[3], expectedOut[4], expectedOut[5]});
-    Mat expectedSumMat = makeMat({1, 2, 3},
-        {expectedSum[0], expectedSum[1], expectedSum[2], expectedSum[3], expectedSum[4], expectedSum[5]});
-
-    normAssert(expectedOutMat, outputs[0], "output", 1e-4, 1e-3);
-    normAssert(expectedSumMat, outputs[1], "input_skip_bias_sum");
-}
-
-TEST(SkipSimplifiedLayerNormalizationLayer, FourOutputsResidualSumIsLast)
-{
-    const float epsilon = 1e-5f;
-    Ptr<Layer> layer = createSkipNorm(epsilon);
-
-    Mat input = makeMat({1, 1, 4}, {1.f, 2.f, 3.f, 4.f});
-    Mat skip  = makeMat({1, 1, 4}, {0.1f, 0.2f, 0.3f, 0.4f});
-    Mat gamma = makeMat({4}, {1.f, 1.f, 1.f, 1.f});
-
-    std::vector<Mat> inputs = {input, skip, gamma};
-    std::vector<Mat> outputs;
-    runSkipNorm(layer, inputs, outputs, 4);
-    ASSERT_EQ(outputs.size(), (size_t)4);
-
-    float sum[4], meanSq = 0.f;
-    for (int i = 0; i < 4; ++i)
-    {
-        sum[i] = input.ptr<float>()[i] + skip.ptr<float>()[i];
-        meanSq += sum[i] * sum[i];
-    }
-    meanSq /= 4.f;
-    const float rms = std::sqrt(meanSq + epsilon);
-    float expectedOut[4];
-    for (int i = 0; i < 4; ++i)
-        expectedOut[i] = sum[i] / rms;
-
-    Mat expectedOutMat = makeMat({1, 1, 4}, {expectedOut[0], expectedOut[1], expectedOut[2], expectedOut[3]});
-    Mat expectedSumMat  = makeMat({1, 1, 4}, {sum[0], sum[1], sum[2], sum[3]});
-
-    normAssert(expectedOutMat, outputs[0], "output (outputs[0])", 1e-4, 1e-3);
-    normAssert(expectedSumMat, outputs[3], "input_skip_bias_sum (outputs.back())");
+    Mat refOutput = blobFromNPY(findDataFile("dnn/onnx/data/output_" + basename + "_0.npy"));
+    Mat refSum = blobFromNPY(findDataFile("dnn/onnx/data/output_" + basename + "_3.npy"));
+    normAssert(refOutput, outs[0], "output", 1e-4, 1e-3);
+    normAssert(refSum, outs[3], "input_skip_bias_sum", 1e-4, 1e-3);
 }
 
 TEST(SkipSimplifiedLayerNormalizationLayer, RequiresAtLeastThreeInputs)
 {
-    Ptr<Layer> layer = createSkipNorm();
+    LayerParams lp;
+    lp.type = "SkipSimplifiedLayerNormalization";
+    lp.name = "test_skip_norm";
+    lp.set("epsilon", 1e-5f);
+    Ptr<Layer> layer = LayerFactory::createLayerInstance("SkipSimplifiedLayerNormalization", lp);
+    CV_Assert(layer);
+
     std::vector<MatShape> inputs = { MatShape({1, 1, 4}), MatShape({1, 1, 4}) };
     std::vector<MatShape> outputs, internals;
     EXPECT_ANY_THROW(layer->getMemoryShapes(inputs, 2, outputs, internals));
