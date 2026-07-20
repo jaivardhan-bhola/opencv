@@ -6,7 +6,7 @@
 
 #include "../precomp.hpp"
 #include "paddleocr_vl_engine.hpp"
-#include "../vlm_model_base.hpp"
+#include "../local_vlm_model_base.hpp"
 #include "../vlm_generation.hpp"
 #include "../config_json.hpp"
 
@@ -106,7 +106,7 @@ String buildPrompt(const String& prompt, int imageTokenRepeats)
     return oss.str();
 }
 
-class PaddleOCRVLModel CV_FINAL : public VLMModelBase
+class PaddleOCRVLModel CV_FINAL : public LocalVLMModelBase
 {
 public:
     PaddleOCRVLModel(const String& model_dir, int engine, const String& device)

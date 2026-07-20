@@ -7,6 +7,7 @@
 #include "precomp.hpp"
 #include "engines/paddleocr_vl_engine.hpp"
 #include "engines/granite_docling_engine.hpp"
+#include "engines/cloud_engine.hpp"
 
 namespace cv { namespace vlm {
 
@@ -24,15 +25,19 @@ int engineFromString(const String& engine)
 } // namespace
 
 Ptr<VLMModel> create(VLMModelType model_type, const String& model_dir,
-                      const String& engine, const String& device)
+                      const String& engine, const String& device, const String& api_key)
 {
-    int engineId = engineFromString(engine);
     switch (model_type)
     {
     case VLM_MODEL_PADDLEOCR_VL:
-        return createPaddleOCRVLModel(model_dir, engineId, device);
+        return createPaddleOCRVLModel(model_dir, engineFromString(engine), device);
     case VLM_MODEL_GRANITE_DOCLING:
-        return createGraniteDoclingModel(model_dir, engineId, device);
+        return createGraniteDoclingModel(model_dir, engineFromString(engine), device);
+    case VLM_MODEL_OPENAI:
+    case VLM_MODEL_ANTHROPIC:
+    case VLM_MODEL_GEMINI:
+    case VLM_MODEL_GROK:
+        return createCloudModel(model_type, model_dir, api_key);
     default:
         CV_Error(Error::StsBadArg, cv::format("vlm: unknown VLMModelType: %d", (int)model_type));
     }
