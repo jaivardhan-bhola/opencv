@@ -8,7 +8,8 @@ set(OPENCV_DNN_SAMPLES_REQUIRED_DEPS
   opencv_video
   opencv_imgcodecs
   opencv_videoio
-  opencv_highgui)
+  opencv_highgui
+  opencv_vlm)
 ocv_check_dependencies(${OPENCV_DNN_SAMPLES_REQUIRED_DEPS})
 
 if(NOT BUILD_EXAMPLES OR NOT OCV_DEPENDENCIES_FOUND)
