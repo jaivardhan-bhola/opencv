@@ -9,6 +9,8 @@
 #include <opencv2/dnn/shape_utils.hpp>
 #include <opencv2/dnn/all_layers.hpp>
 
+#include <cmath>
+
 namespace opencv_test { namespace {
 
 // SkipSimplifiedLayerNormalization (com.microsoft) is only supported by the new
@@ -52,12 +54,15 @@ TEST(SkipSimplifiedLayerNormalizationLayer, ONNXModel_NoBiasMultiRow)
 }
 
 // Covers a bias input, non-uniform gamma, multiple rows, and requesting all 4
-// graph outputs (output, mean, inv_std_var, input_skip_bias_sum). mean/inv_std_var
-// aren't checked: the layer implementation allocates but never fills them.
+// graph outputs (output, mean, inv_std_var, input_skip_bias_sum). mean is
+// expected to be all zeros (SimplifiedLayerNormalization has no mean-subtraction
+// step); inv_std_var is derived here from the reference residual sum, since no
+// separate reference fixture exists for it.
 TEST(SkipSimplifiedLayerNormalizationLayer, ONNXModel_BiasNonUniformGammaFourOutputs)
 {
     if (skipIfClassicEngineForced()) return;
 
+    const float epsilon = 1e-5f;
     const std::string basename = "skip_simplified_layer_norm_with_bias";
     Net net = readNetFromONNX(findDataFile("dnn/onnx/models/" + basename + ".onnx", true), cv::dnn::ENGINE_NEW);
     ASSERT_FALSE(net.empty());
@@ -75,6 +80,26 @@ TEST(SkipSimplifiedLayerNormalizationLayer, ONNXModel_BiasNonUniformGammaFourOut
     Mat refSum = blobFromNPY(findDataFile("dnn/onnx/data/output_" + basename + "_3.npy"));
     normAssert(refOutput, outs[0], "output", 1e-4, 1e-3);
     normAssert(refSum, outs[3], "input_skip_bias_sum", 1e-4, 1e-3);
+
+    const int hidden = refSum.size[refSum.dims - 1];
+    const int rows = (int)(refSum.total() / hidden);
+    std::vector<int> reducedShape(outs[1].size.p, outs[1].size.p + outs[1].dims);
+    Mat expectedMean = Mat::zeros((int)reducedShape.size(), reducedShape.data(), CV_32F);
+    Mat expectedInvStd((int)reducedShape.size(), reducedShape.data(), CV_32F);
+    const float* s = refSum.ptr<float>();
+    float* iv = expectedInvStd.ptr<float>();
+    for (int r = 0; r < rows; ++r)
+    {
+        double sumSq = 0.0;
+        for (int c = 0; c < hidden; ++c)
+        {
+            float v = s[(size_t)r * hidden + c];
+            sumSq += (double)v * v;
+        }
+        iv[r] = (float)(1.0 / std::sqrt(sumSq / hidden + epsilon));
+    }
+    normAssert(expectedMean, outs[1], "mean", 1e-4, 1e-3);
+    normAssert(expectedInvStd, outs[2], "inv_std_var", 1e-4, 1e-3);
 }
 
 TEST(SkipSimplifiedLayerNormalizationLayer, RequiresAtLeastThreeInputs)
