@@ -23,11 +23,22 @@ namespace cv { namespace vlm {
 //! @addtogroup vlm
 //! @{
 
-/** @brief Supported vision-language OCR / document-understanding model types. */
+/** @brief Supported vision-language OCR / document-understanding model types.
+
+VLM_MODEL_PADDLEOCR_VL and VLM_MODEL_GRANITE_DOCLING run locally from ONNX weights (see
+create()'s model_dir param). VLM_MODEL_OPENAI/ANTHROPIC/GEMINI/GROK call the provider's
+hosted vision API over HTTPS instead (requires OpenCV built with libcurl available, and an
+api_key passed to create()).
+*/
 enum VLMModelType
 {
     VLM_MODEL_PADDLEOCR_VL    = 0,  //!< PaddleOCR-VL-1.5, see https://huggingface.co/PaddlePaddle/PaddleOCR-VL
-    VLM_MODEL_GRANITE_DOCLING = 1   //!< Granite-Docling-258M, see https://huggingface.co/ibm-granite/granite-docling-258M
+    VLM_MODEL_GRANITE_DOCLING = 1,  //!< Granite-Docling-258M, see https://huggingface.co/ibm-granite/granite-docling-258M
+
+    VLM_MODEL_OPENAI          = 2,  //!< OpenAI hosted vision API (e.g. gpt-4o), requires api_key
+    VLM_MODEL_ANTHROPIC       = 3,  //!< Anthropic Claude hosted vision API, requires api_key
+    VLM_MODEL_GEMINI          = 4,  //!< Google Gemini hosted vision API, requires api_key
+    VLM_MODEL_GROK            = 5   //!< xAI Grok hosted vision API, requires api_key
 };
 
 /** @brief Base class for vision-language OCR / document-understanding engines.
@@ -82,18 +93,27 @@ public:
 
 /** @brief Create a vision-language OCR / document-understanding engine.
 
-@param model_type Which VLM to load (PaddleOCR-VL-1.5 or Granite-Docling-258M).
-@param model_dir  Path to the local ONNX export directory for the chosen model type,
-                   following the upstream layout documented in
-                   samples/dnn/granite_docling_inference.py and
-                   samples/dnn/paddleocr_vl_inference.py.
+@param model_type Which VLM to load. VLM_MODEL_PADDLEOCR_VL/VLM_MODEL_GRANITE_DOCLING run
+                   locally; VLM_MODEL_OPENAI/ANTHROPIC/GEMINI/GROK call a hosted API.
+@param model_dir  For local model types: path to the local ONNX export directory, following
+                   the upstream layout documented in samples/dnn/granite_docling_inference.py
+                   and samples/dnn/paddleocr_vl_inference.py.
+                   For cloud model types: the provider's model name, e.g. "gpt-4o",
+                   "claude-3-5-sonnet-20241022", "gemini-2.0-flash", "grok-2-vision-1212" --
+                   required, with no built-in default, since provider model names change over
+                   time and a hardcoded guess would eventually go stale and fail confusingly.
 @param engine     cv::dnn::Net engine used to load each underlying ONNX sub-model: "new"
-                  (dnn::ENGINE_NEW) or "ort" (dnn::ENGINE_ORT).
-@param device     Compute device for all underlying nets: "cpu" or "cuda".
+                  (dnn::ENGINE_NEW) or "ort" (dnn::ENGINE_ORT). Ignored by cloud model types.
+@param device     For local model types: compute device for all underlying nets, "cpu" or
+                  "cuda". For cloud model types: pass "cloud" (there is no local compute
+                  device to pick; any value is accepted here and has no effect).
+@param api_key    API key for cloud model types; required for VLM_MODEL_OPENAI/ANTHROPIC/
+                  GEMINI/GROK, ignored by local model types.
 */
 CV_EXPORTS_W Ptr<VLMModel> create(VLMModelType model_type, CV_WRAP_FILE_PATH const String& model_dir,
                                    const String& engine = "new",
-                                   const String& device = "cpu");
+                                   const String& device = "cpu",
+                                   const String& api_key = String());
 
 //! @}
 

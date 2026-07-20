@@ -21,6 +21,36 @@ TEST(Vlm_Model, NonexistentModelDirThrows_GraniteDocling)
     EXPECT_THROW(create(VLM_MODEL_GRANITE_DOCLING, "/nonexistent/model/dir"), cv::Exception);
 }
 
+TEST(Vlm_Model, MissingApiKeyThrows_OpenAI)
+{
+    EXPECT_THROW(create(VLM_MODEL_OPENAI, ""), cv::Exception);
+}
+
+TEST(Vlm_Model, MissingApiKeyThrows_Anthropic)
+{
+    EXPECT_THROW(create(VLM_MODEL_ANTHROPIC, ""), cv::Exception);
+}
+
+TEST(Vlm_Model, MissingApiKeyThrows_Gemini)
+{
+    EXPECT_THROW(create(VLM_MODEL_GEMINI, ""), cv::Exception);
+}
+
+TEST(Vlm_Model, MissingApiKeyThrows_Grok)
+{
+    EXPECT_THROW(create(VLM_MODEL_GROK, ""), cv::Exception);
+}
+
+TEST(Vlm_Model, MissingModelNameThrows_OpenAI)
+{
+    EXPECT_THROW(create(VLM_MODEL_OPENAI, "", "new", "cloud", "some-api-key"), cv::Exception);
+}
+
+TEST(Vlm_Model, MissingModelNameThrows_Gemini)
+{
+    EXPECT_THROW(create(VLM_MODEL_GEMINI, "", "new", "cloud", "some-api-key"), cv::Exception);
+}
+
 TEST(Vlm_Model, EndToEnd_PaddleOCRVL)
 {
     std::string modelDir = cv::utils::getConfigurationParameterString("OPENCV_TEST_VLM_PADDLEOCR_VL_DIR");

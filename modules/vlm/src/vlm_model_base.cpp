@@ -11,47 +11,6 @@ namespace cv { namespace vlm {
 
 VLMModel::~VLMModel() {}
 
-void VLMModelBase::registerNets(dnn::Net& visionNet, dnn::Net& embedNet, dnn::Net& decoderNet)
-{
-    visionNet_ = &visionNet;
-    embedNet_ = &embedNet;
-    decoderNet_ = &decoderNet;
-}
-
-void VLMModelBase::reset()
-{
-    CV_Assert(decoderNet_);
-    decoderNet_->resetKVCache();
-}
-
-void VLMModelBase::setPreferableDevice(const String& device)
-{
-    CV_Assert(visionNet_ && embedNet_ && decoderNet_);
-
-    int backendId, targetId;
-    if (device == "cpu")
-    {
-        backendId = dnn::DNN_BACKEND_DEFAULT;
-        targetId = dnn::DNN_TARGET_CPU;
-    }
-    else if (device == "cuda")
-    {
-        backendId = dnn::DNN_BACKEND_CUDA;
-        targetId = dnn::DNN_TARGET_CUDA;
-    }
-    else
-    {
-        CV_Error(Error::StsBadArg, "vlm: unknown device '" + device + "' (expected 'cpu' or 'cuda')");
-    }
-
-    dnn::Net* nets[] = {visionNet_, embedNet_, decoderNet_};
-    for (dnn::Net* net : nets)
-    {
-        net->setPreferableBackend(backendId);
-        net->setPreferableTarget(targetId);
-    }
-}
-
 std::vector<String> VLMModelBase::inferDocument(const String& input_path, const String& prompt,
                                                  int max_new_tokens)
 {

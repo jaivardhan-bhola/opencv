@@ -6,7 +6,7 @@
 
 #include "../precomp.hpp"
 #include "granite_docling_engine.hpp"
-#include "../vlm_model_base.hpp"
+#include "../local_vlm_model_base.hpp"
 #include "../vlm_generation.hpp"
 #include "../config_json.hpp"
 
@@ -112,7 +112,7 @@ String buildPrompt(int rows, int cols, int imageSeqLen, const String& userText)
     return full.str();
 }
 
-class GraniteDoclingModel CV_FINAL : public VLMModelBase
+class GraniteDoclingModel CV_FINAL : public LocalVLMModelBase
 {
 public:
     GraniteDoclingModel(const String& model_dir, int engine, const String& device)
