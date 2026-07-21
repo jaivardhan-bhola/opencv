@@ -1263,8 +1263,6 @@ TEST_P(Test_Sign_Int, random)
     Backend backend = get<0>(backend_target);
     Target target = get<1>(backend_target);
 
-    // The CUDA SignOp only supports floating point tensors; the integer path
-    // being tested here is only implemented in the default (CPU) engine.
     if (backend == DNN_BACKEND_CUDA)
         applyTestTag(CV_TEST_TAG_DNN_SKIP_CUDA);
 
@@ -1272,8 +1270,6 @@ TEST_P(Test_Sign_Int, random)
     Mat input(inShape, matType);
     cv::randu(input, -100, 100);
 
-    // Make sure all three branches (negative/zero/positive) are exercised,
-    // not just whatever randu happens to produce.
     if (matType == CV_32S)
     {
         input.ptr<int32_t>()[0] = 0;
@@ -1340,9 +1336,6 @@ TEST_P(Test_Sign_Int_Unsupported, throws)
     net.setPreferableBackend(backend);
     net.setPreferableTarget(target);
 
-    // Only CV_32S/CV_64S are handled by the integer dispatch; other integer
-    // types fall through to the CV_32F/CV_64F-only path and must fail loudly
-    // rather than silently producing wrong results.
     EXPECT_ANY_THROW(net.forward());
 }
 

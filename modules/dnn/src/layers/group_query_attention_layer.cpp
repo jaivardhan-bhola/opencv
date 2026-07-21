@@ -202,7 +202,7 @@ public:
 
         std::vector<float> outHeadsMajor((size_t)B * num_heads * S * D);
         parallel_for_(Range(0, B * num_heads), [&](const Range& r) {
-            Mat scoresMat(S, Skv, CV_32F);
+            std::vector<float> scores(Skv);
             for (int bh = r.start; bh < r.end; ++bh) {
                 const int b = bh / num_heads;
                 const int h = bh % num_heads;
@@ -210,17 +210,10 @@ public:
                 const int validLenB = validLen[b];
                 const int padOffB = padOffset[b];
 
-                float* Qbh = Q.data() + (size_t)bh * S * D;
-                float* Kbh = presentKey.ptr<float>() + (((size_t)b * kv_num_heads + kvh) * Skv) * D;
-                float* Vbh = presentValue.ptr<float>() + (((size_t)b * kv_num_heads + kvh) * Skv) * D;
+                const float* Qbh = Q.data() + (size_t)bh * S * D;
+                const float* Kbh = presentKey.ptr<float>() + (((size_t)b * kv_num_heads + kvh) * Skv) * D;
+                const float* Vbh = presentValue.ptr<float>() + (((size_t)b * kv_num_heads + kvh) * Skv) * D;
                 float* outBh = outHeadsMajor.data() + (size_t)bh * S * D;
-
-                Mat Qmat(S, D, CV_32F, Qbh);
-                Mat Kmat(Skv, D, CV_32F, Kbh);
-                Mat Vmat(Skv, D, CV_32F, Vbh);
-                Mat outMat(S, D, CV_32F, outBh);
-
-                cv::gemm(Qmat, Kmat, effScale, noArray(), 0.0, scoresMat, GEMM_2_T);
 
                 for (int i = 0; i < S; ++i) {
                     const int queryPos = validLenB - S + i;
@@ -228,27 +221,32 @@ public:
                     int lo = padOffB;
                     if (local_window_size >= 0) lo = std::max(lo, hi - local_window_size);
 
-                    float* row = scoresMat.ptr<float>(i);
-                    if (softcap > 0.f) {
-                        for (int j = lo; j <= hi; ++j) row[j] = softcap * std::tanh(row[j] / softcap);
-                    }
-
+                    const float* Qi = Qbh + (size_t)i * D;
                     float mx = -FLT_MAX;
-                    for (int j = lo; j <= hi; ++j) if (row[j] > mx) mx = row[j];
-
+                    for (int j = lo; j <= hi; ++j) {
+                        const float* Kj = Kbh + (size_t)j * D;
+                        float s = 0.f;
+                        for (int d = 0; d < D; ++d) s += Qi[d] * Kj[d];
+                        s *= effScale;
+                        if (softcap > 0.f) s = softcap * std::tanh(s / softcap);
+                        scores[j] = s;
+                        if (s > mx) mx = s;
+                    }
                     float sum = 0.f;
                     for (int j = lo; j <= hi; ++j) {
-                        const float e = std::exp(row[j] - mx);
-                        row[j] = e;
+                        float e = std::exp(scores[j] - mx);
+                        scores[j] = e;
                         sum += e;
                     }
                     const float invSum = 1.f / sum;
-                    for (int j = lo; j <= hi; ++j) row[j] *= invSum;
-                    for (int j = 0; j < lo; ++j) row[j] = 0.f;
-                    for (int j = hi + 1; j < Skv; ++j) row[j] = 0.f;
+                    float* outRow = outBh + (size_t)i * D;
+                    for (int d = 0; d < D; ++d) outRow[d] = 0.f;
+                    for (int j = lo; j <= hi; ++j) {
+                        const float a = scores[j] * invSum;
+                        const float* Vj = Vbh + (size_t)j * D;
+                        for (int d = 0; d < D; ++d) outRow[d] += a * Vj[d];
+                    }
                 }
-
-                cv::gemm(scoresMat, Vmat, 1.0, noArray(), 0.0, outMat);
             }
         });
 

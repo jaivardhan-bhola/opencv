@@ -410,8 +410,6 @@ public:
         return ptr;
     }
 
-    // Decodes the 4 hex digits following a \u escape; ptr must point at the first
-    // digit and is advanced past all 4 on return.
     uint32_t parseUnicodeEscape(char*& ptr)
     {
         uint32_t codepoint = 0;
@@ -456,11 +454,11 @@ public:
             if (*ptr == '\\') { // skip the next character if current is back slash
                 ++ptr;
                 CV_PERSISTENCE_CHECK_END_OF_BUFFER_BUG_CPP();
-                if (*ptr == 'u') { // \uXXXX: decode the 4 hex digits into a UTF-8 sequence
+                if (*ptr == 'u') {
                     ++ptr;
                     uint32_t codepoint = parseUnicodeEscape(ptr);
                     appendUtf8(key_name, codepoint);
-                    continue; // ptr already sits past the escape; skip the trailing ++ptr below
+                    continue;
                 }
                 key_name += *ptr;
             } else if (*ptr != '"') {

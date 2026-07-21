@@ -13,9 +13,6 @@
 
 namespace opencv_test { namespace {
 
-// SkipSimplifiedLayerNormalization (com.microsoft) is only supported by the new
-// DNN engine's ONNX importer, so these tests are skipped when the classic engine
-// is forced.
 static bool skipIfClassicEngineForced()
 {
     auto engine_forced = static_cast<cv::dnn::EngineType>(
@@ -28,9 +25,6 @@ static bool skipIfClassicEngineForced()
     return false;
 }
 
-// Covers no-bias input, uniform gamma, and independent normalization across
-// multiple rows (batch/sequence), requesting only the 2 outputs that are used
-// downstream (output, input_skip_bias_sum).
 TEST(SkipSimplifiedLayerNormalizationLayer, ONNXModel_NoBiasMultiRow)
 {
     if (skipIfClassicEngineForced()) return;
@@ -53,11 +47,6 @@ TEST(SkipSimplifiedLayerNormalizationLayer, ONNXModel_NoBiasMultiRow)
     normAssert(refSum, outs[1], "input_skip_bias_sum", 1e-4, 1e-3);
 }
 
-// Covers a bias input, non-uniform gamma, multiple rows, and requesting all 4
-// graph outputs (output, mean, inv_std_var, input_skip_bias_sum). mean is
-// expected to be all zeros (SimplifiedLayerNormalization has no mean-subtraction
-// step); inv_std_var is derived here from the reference residual sum, since no
-// separate reference fixture exists for it.
 TEST(SkipSimplifiedLayerNormalizationLayer, ONNXModel_BiasNonUniformGammaFourOutputs)
 {
     if (skipIfClassicEngineForced()) return;

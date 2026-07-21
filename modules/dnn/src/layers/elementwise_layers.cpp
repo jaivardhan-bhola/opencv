@@ -113,9 +113,6 @@ struct ElementWiseIntDispatch
     static inline bool apply(const Func&, const Mat&, Mat&) { return false; }
 };
 
-// Extra integer MatTypes a specific Func supports beyond the CV_32F/CV_64F/CV_8S/CV_8U/CV_64S
-// that Layer::getTypes() allows by default; only Funcs with an ElementWiseIntDispatch
-// specialization that actually consumes these types should opt in here.
 template<typename Func>
 struct ElementWiseExtraTypes
 {
@@ -3371,8 +3368,6 @@ struct SignFunctor : public BaseDefaultFunctor<SignFunctor>
 template<>
 const char* const SignFunctor::BaseDefaultFunctor<SignFunctor>::ocl_kernel_name = "SignForward";
 
-// ONNX Sign (https://onnx.ai/onnx/operators/onnx__Sign.html) is defined for all numeric
-// tensor types, including the integer tensors that Mod-based position-id arithmetic produces.
 template<>
 struct ElementWiseIntDispatch<SignFunctor>
 {

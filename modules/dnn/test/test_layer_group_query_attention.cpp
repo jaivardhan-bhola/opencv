@@ -11,8 +11,6 @@
 
 namespace opencv_test { namespace {
 
-// GroupQueryAttention (com.microsoft) is only supported by the new DNN engine's
-// ONNX importer, so these tests are skipped when the classic engine is forced.
 static bool skipIfClassicEngineForced()
 {
     auto engine_forced = static_cast<cv::dnn::EngineType>(
@@ -55,12 +53,6 @@ static const std::vector<std::string> GQA_INPUT_NAMES = {
     "seqlens_k", "total_sequence_length", "cos_cache", "sin_cache"
 };
 
-// Each model below isolates exactly one behavior, mirroring what the previous
-// hand-computed unit tests covered individually (kept isolated rather than
-// combined, since combining untested attribute interactions - e.g. local
-// window + softcap + padding together - could mask or introduce bugs unrelated
-// to what's actually exercised by the supported models).
-
 TEST(GroupQueryAttentionLayer, ONNXModel_CausalSelfAttentionNoCache)
 {
     if (skipIfClassicEngineForced()) return;
@@ -101,8 +93,6 @@ TEST(GroupQueryAttentionLayer, ONNXModel_SoftcapClampsScores)
     checkGQAOutputs("group_query_attention_softcap", outs);
 }
 
-// Covers rotary position embedding being applied only to the new token,
-// leaving the cached past_key/past_value untouched.
 TEST(GroupQueryAttentionLayer, ONNXModel_RotaryAppliesOnlyToNewToken)
 {
     if (skipIfClassicEngineForced()) return;

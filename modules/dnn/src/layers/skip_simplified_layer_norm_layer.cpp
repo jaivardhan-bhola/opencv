@@ -9,7 +9,6 @@
 namespace cv { namespace dnn {
 
 // Operator spec: https://github.com/microsoft/onnxruntime/blob/main/docs/ContribOperators.md#com.microsoft.SkipSimplifiedLayerNormalization
-// Outputs are positional per spec: 0=output, 1=mean, 2=inv_std_var, 3=input_skip_bias_sum.
 class SkipSimplifiedLayerNormalizationLayerImpl CV_FINAL : public SkipSimplifiedLayerNormalizationLayer {
 public:
     float epsilon;
@@ -40,11 +39,10 @@ public:
 
         MatShape reducedShape = inputs[0];
         if (!reducedShape.empty())
-            reducedShape.back() = 1; // mean / inv_std_var: [B, S, 1]
+            reducedShape.back() = 1;
 
         outputs.resize(requiredOutputs);
         for (int i = 0; i < requiredOutputs; ++i)
-            // 0: output, 1: mean, 2: inv_std_var (reduced), 3: input_skip_bias_sum (full)
             outputs[i] = (i == 1 || i == 2) ? reducedShape : inputs[0];
         internals.clear();
         return false;
@@ -72,11 +70,6 @@ public:
         const int hidden = (int)gamma.total();
         const int rows = (int)(input.total() / hidden);
 
-        // input_skip_bias_sum is fixed ONNX slot 3. It's only externally visible
-        // when all 4 outputs are requested; RMSNorm still needs it as an input
-        // regardless, so fall back to a scratch buffer rather than assuming it's
-        // whatever happens to be last in `outputs` (that was only correct when
-        // callers requested every optional output, i.e. requiredOutputs == 4).
         Mat sumScratch;
         Mat& sumOut = (numOutputs > 3) ? outputs[3] : sumScratch;
 
@@ -103,12 +96,6 @@ public:
         std::vector<Mat> rmsInternals;
         rms->forward(rmsInputs, rmsOutputs, rmsInternals);
 
-        // mean (slot 1) / inv_std_var (slot 2) are training-side channels for
-        // speeding up gradient computation; this layer is inference-only, and
-        // SimplifiedLayerNormalization has no mean-subtraction step to begin
-        // with, so "mean" has no real content here. Previously these were left
-        // completely unfilled (garbage) whenever requested. Now: zero out mean,
-        // and actually compute inv_std_var per row so it's not silently wrong.
         if (numOutputs > 1) {
             Mat& meanOut = outputs[1];
             meanOut.setTo(Scalar(0));
