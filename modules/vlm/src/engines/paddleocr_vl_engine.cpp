@@ -9,10 +9,7 @@
 #include "../local_vlm_model_base.hpp"
 #include "../vlm_generation.hpp"
 #include "../config_json.hpp"
-
-#include <cmath>
-#include <cstring>
-#include <sstream>
+#include "paddleocr_vl_preprocess.hpp"
 
 namespace cv { namespace vlm {
 
@@ -21,90 +18,6 @@ using namespace cv::dnn;
 namespace {
 
 const String DEFAULT_PROMPT = "OCR";
-
-void smartResize(int height, int width, int factor, int minPixels, int maxPixels,
-                  int& outHeight, int& outWidth)
-{
-    if (height < factor)
-    {
-        width = (int)std::round((double)(width * factor) / height);
-        height = factor;
-    }
-    if (width < factor)
-    {
-        height = (int)std::round((double)(height * factor) / width);
-        width = factor;
-    }
-    CV_CheckLE((double)std::max(height, width) / std::min(height, width), 200.0,
-               "vlm: absolute aspect ratio is too large");
-
-    int hBar = (int)std::round((double)height / factor) * factor;
-    int wBar = (int)std::round((double)width / factor) * factor;
-    if ((int64_t)hBar * wBar > maxPixels)
-    {
-        double beta = std::sqrt((double)(height * width) / maxPixels);
-        hBar = (int)(std::floor(height / beta / factor)) * factor;
-        wBar = (int)(std::floor(width / beta / factor)) * factor;
-    }
-    else if ((int64_t)hBar * wBar < minPixels)
-    {
-        double beta = std::sqrt((double)minPixels / (height * width));
-        hBar = (int)(std::ceil(height * beta / factor)) * factor;
-        wBar = (int)(std::ceil(width * beta / factor)) * factor;
-    }
-    outHeight = hBar;
-    outWidth = wBar;
-}
-
-Mat preprocessImage(const Mat& imageBgr, int patchSize, int mergeSize, int minPixels, int maxPixels,
-                    const Vec3f& mean, const Vec3f& std_, float rescaleFactor, int& gridH, int& gridW)
-{
-    int factor = patchSize * mergeSize;
-    int resizedHeight, resizedWidth;
-    smartResize(imageBgr.rows, imageBgr.cols, factor, minPixels, maxPixels, resizedHeight, resizedWidth);
-
-    Mat resized;
-    resize(imageBgr, resized, Size(resizedWidth, resizedHeight), 0, 0, INTER_CUBIC);
-    Mat rgb;
-    cvtColor(resized, rgb, COLOR_BGR2RGB);
-    rgb.convertTo(rgb, CV_32F, rescaleFactor);
-
-    std::vector<Mat> channels(3);
-    split(rgb, channels);
-    for (int c = 0; c < 3; c++)
-        channels[c].convertTo(channels[c], -1, 1.0 / std_[c], -mean[c] / std_[c]);
-
-    gridH = resizedHeight / patchSize;
-    gridW = resizedWidth / patchSize;
-    int numPatches = gridH * gridW;
-
-    int sizes[] = {1, numPatches, 3, patchSize, patchSize};
-    Mat pixelValues(5, sizes, CV_32F);
-
-    int idx = 0;
-    for (int h = 0; h < gridH; h++)
-        for (int w = 0; w < gridW; w++)
-        {
-            Rect roi(w * patchSize, h * patchSize, patchSize, patchSize);
-            for (int c = 0; c < 3; c++)
-            {
-                Mat dst(patchSize, patchSize, CV_32F, pixelValues.ptr<float>(0, idx, c));
-                channels[c](roi).copyTo(dst);
-            }
-            idx++;
-        }
-    return pixelValues;
-}
-
-String buildPrompt(const String& prompt, int imageTokenRepeats)
-{
-    std::ostringstream oss;
-    oss << "<|begin_of_sentence|>User: <|IMAGE_START|>";
-    for (int i = 0; i < imageTokenRepeats; i++)
-        oss << "<|IMAGE_PLACEHOLDER|>";
-    oss << "<|IMAGE_END|>" << prompt << "\nAssistant:\n";
-    return oss.str();
-}
 
 class PaddleOCRVLModel CV_FINAL : public LocalVLMModelBase
 {
@@ -122,6 +35,8 @@ public:
 
         patchSize_ = getInt(preprocessor, "patch_size", 14);
         mergeSize_ = getInt(preprocessor, "merge_size", 2);
+        CV_CheckGT(patchSize_, 0, "vlm: patch_size must be positive");
+        CV_CheckGT(mergeSize_, 0, "vlm: merge_size must be positive");
         minPixels_ = getInt(preprocessor, "min_pixels", 28 * 28 * 130);
         maxPixels_ = getInt(preprocessor, "max_pixels", 28 * 28 * 1280);
         rescaleFactor_ = getFloat(preprocessor, "rescale_factor", 1.0f / 255.0f);
@@ -151,7 +66,7 @@ public:
         imageGridThw.at<int64_t>(0, 2) = gridW;
 
         int imageTokenRepeats = (int)((1LL * gridH * gridW) / mergeSize_ / mergeSize_);
-        std::vector<int> tokens = tokenizer_.encode(buildPrompt(actualPrompt, imageTokenRepeats));
+        std::vector<int> tokens = tokenizer_.encode(buildPaddleOCRVLPrompt(actualPrompt, imageTokenRepeats));
         int promptLen = (int)tokens.size();
         std::vector<int64_t> inputIdsData(tokens.begin(), tokens.end());
         int idsShape[] = {1, promptLen};
@@ -164,14 +79,7 @@ public:
         embedNet_.setInput(inputIds, "input_ids");
         Mat inputsEmbeds = embedNet_.forward();
 
-        int hiddenDim = inputsEmbeds.size[2];
-        float* embedsData = inputsEmbeds.ptr<float>();
-        const float* featData = imageEmbeds.ptr<float>();
-        int featIdx = 0;
-        for (int i = 0; i < promptLen; i++)
-            if (tokens[i] == imageTokenId_)
-                memcpy(embedsData + (size_t)i * hiddenDim, featData + (size_t)(featIdx++) * hiddenDim,
-                       hiddenDim * sizeof(float));
+        scatterImageFeatures(inputsEmbeds, tokens, imageTokenId_, imageEmbeds);
 
         std::vector<int> generated = generateWithKVCache(embedNet_, decoderNet_, inputsEmbeds,
                                                           promptLen, max_new_tokens, eosTokenId_);

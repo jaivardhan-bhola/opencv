@@ -8,6 +8,7 @@
 #include "vlm_generation.hpp"
 
 #include <algorithm>
+#include <cstring>
 
 namespace cv { namespace vlm {
 
@@ -19,6 +20,25 @@ int argmaxLastToken(const Mat& logits)
     int vocabSize = logits.size[2];
     const float* row = logits.ptr<float>(0, seqLen - 1);
     return (int)(std::max_element(row, row + vocabSize) - row);
+}
+
+void scatterImageFeatures(Mat& inputsEmbeds, const std::vector<int>& tokens,
+                           int imageTokenId, const Mat& imageFeatures)
+{
+    int hiddenDim = inputsEmbeds.size[2];
+    int numFeatures = (int)(imageFeatures.total() / hiddenDim);
+    float* embedsData = inputsEmbeds.ptr<float>();
+    const float* featData = imageFeatures.ptr<float>();
+    int featIdx = 0;
+    for (size_t i = 0; i < tokens.size(); i++)
+        if (tokens[i] == imageTokenId)
+        {
+            CV_CheckLT(featIdx, numFeatures,
+                       "vlm: more <image> tokens than vision-encoder output features "
+                       "-- model export and preprocessor config are inconsistent");
+            memcpy(embedsData + i * hiddenDim, featData + (size_t)(featIdx++) * hiddenDim,
+                   hiddenDim * sizeof(float));
+        }
 }
 
 std::vector<int> generateWithKVCache(Net& embedNet, Net& decoderNet,

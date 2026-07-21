@@ -9,6 +9,8 @@
 #include "../src/config_json.hpp"
 #include "../src/vlm_generation.hpp"
 #include "../src/local_vlm_model_base.hpp"
+#include "../src/engines/granite_docling_preprocess.hpp"
+#include "../src/engines/paddleocr_vl_preprocess.hpp"
 
 #include <fstream>
 #include <cstdio>
@@ -141,6 +143,138 @@ TEST(Vlm_Generation, ArgmaxLastTokenTieBreaksToFirst)
     row[0] = 5.f; row[1] = 5.f; row[2] = 1.f;
 
     EXPECT_EQ(argmaxLastToken(logits), 0);
+}
+
+TEST(Vlm_Generation, ScatterImageFeaturesCopiesAtImageTokenPositions)
+{
+    int hiddenDim = 4;
+    int embedsSizes[] = {1, 3, hiddenDim};
+    Mat inputsEmbeds(3, embedsSizes, CV_32F, Scalar(0));
+
+    int featSizes[] = {1, 2, hiddenDim};
+    Mat imageFeatures(3, featSizes, CV_32F);
+    for (int f = 0; f < 2; f++)
+    {
+        float* row = imageFeatures.ptr<float>(0, f);
+        for (int c = 0; c < hiddenDim; c++)
+            row[c] = (float)(f * 10 + c);
+    }
+
+    int imageTokenId = 99;
+    std::vector<int> tokens = {1, imageTokenId, imageTokenId};
+    scatterImageFeatures(inputsEmbeds, tokens, imageTokenId, imageFeatures);
+
+    const float* untouched = inputsEmbeds.ptr<float>(0, 0);
+    for (int c = 0; c < hiddenDim; c++)
+        EXPECT_EQ(untouched[c], 0.f);
+
+    const float* first = inputsEmbeds.ptr<float>(0, 1);
+    const float* second = inputsEmbeds.ptr<float>(0, 2);
+    for (int c = 0; c < hiddenDim; c++)
+    {
+        EXPECT_EQ(first[c], (float)c);
+        EXPECT_EQ(second[c], (float)(10 + c));
+    }
+}
+
+TEST(Vlm_Generation, ScatterImageFeaturesThrowsWhenTooFewFeatures)
+{
+    int hiddenDim = 4;
+    int embedsSizes[] = {1, 2, hiddenDim};
+    Mat inputsEmbeds(3, embedsSizes, CV_32F, Scalar(0));
+
+    int featSizes[] = {1, 1, hiddenDim};
+    Mat imageFeatures(3, featSizes, CV_32F, Scalar(0));
+
+    int imageTokenId = 99;
+    std::vector<int> tokens = {imageTokenId, imageTokenId};
+    EXPECT_THROW(scatterImageFeatures(inputsEmbeds, tokens, imageTokenId, imageFeatures), cv::Exception);
+}
+
+TEST(Vlm_GraniteDoclingPreprocess, TileGridDimensionsForKnownAspectRatio)
+{
+    Mat image(400, 800, CV_8UC3, Scalar(0, 0, 0));
+    int rows, cols;
+    Mat pixelValues = tileImage(image, /*longestEdge=*/512, /*tileSize=*/256,
+                                 Vec3f(0.f, 0.f, 0.f), Vec3f(1.f, 1.f, 1.f), rows, cols);
+
+    EXPECT_EQ(rows, 1);
+    EXPECT_EQ(cols, 2);
+
+    int numTiles = rows * cols + 1;
+    EXPECT_EQ(pixelValues.dims, 5);
+    EXPECT_EQ(pixelValues.size[1], numTiles);
+    EXPECT_EQ(pixelValues.size[3], 256);
+    EXPECT_EQ(pixelValues.size[4], 256);
+}
+
+TEST(Vlm_GraniteDoclingPreprocess, TileGridDimensionsForPortraitImage)
+{
+    Mat image(800, 400, CV_8UC3, Scalar(0, 0, 0));
+    int rows, cols;
+    tileImage(image, /*longestEdge=*/512, /*tileSize=*/256, Vec3f(0.f, 0.f, 0.f), Vec3f(1.f, 1.f, 1.f),
+              rows, cols);
+
+    EXPECT_EQ(rows, 2);
+    EXPECT_EQ(cols, 1);
+}
+
+TEST(Vlm_GraniteDoclingPreprocess, BuildPromptContainsRowColAndUserText)
+{
+    String prompt = buildGraniteDoclingPrompt(1, 1, 1, "hello");
+    EXPECT_NE(prompt.find("<row_1_col_1>"), String::npos);
+    EXPECT_NE(prompt.find("<global-img>"), String::npos);
+    EXPECT_NE(prompt.find("hello"), String::npos);
+    EXPECT_EQ(prompt.find("<|start_of_role|>user<|end_of_role|>"), (size_t)0);
+    EXPECT_NE(prompt.find("<|start_of_role|>assistant<|end_of_role|>"), String::npos);
+}
+
+TEST(Vlm_PaddleOCRVLPreprocess, SmartResizeSnapsToFactorMultiples)
+{
+    int outHeight, outWidth;
+    smartResize(10, 20, /*factor=*/2, /*minPixels=*/1, /*maxPixels=*/1000000, outHeight, outWidth);
+    EXPECT_EQ(outHeight, 10);
+    EXPECT_EQ(outWidth, 20);
+}
+
+TEST(Vlm_PaddleOCRVLPreprocess, SmartResizeUpscalesBelowFactor)
+{
+    int outHeight, outWidth;
+    smartResize(1, 10, /*factor=*/4, /*minPixels=*/1, /*maxPixels=*/1000000, outHeight, outWidth);
+    EXPECT_EQ(outHeight, 4);
+    EXPECT_EQ(outWidth, 40);
+}
+
+TEST(Vlm_PaddleOCRVLPreprocess, SmartResizeThrowsOnExtremeAspectRatio)
+{
+    int outHeight, outWidth;
+    EXPECT_THROW(smartResize(1, 300, /*factor=*/1, /*minPixels=*/1, /*maxPixels=*/1000000,
+                              outHeight, outWidth),
+                 cv::Exception);
+}
+
+TEST(Vlm_PaddleOCRVLPreprocess, PreprocessImageComputesGridAndShape)
+{
+    Mat image(28, 28, CV_8UC3, Scalar(0, 0, 0));
+    int gridH, gridW;
+    Mat pixelValues = preprocessImage(image, /*patchSize=*/14, /*mergeSize=*/1, /*minPixels=*/1,
+                                       /*maxPixels=*/1000000, Vec3f(0.f, 0.f, 0.f), Vec3f(1.f, 1.f, 1.f),
+                                       1.f, gridH, gridW);
+
+    EXPECT_EQ(gridH, 2);
+    EXPECT_EQ(gridW, 2);
+    EXPECT_EQ(pixelValues.dims, 5);
+    EXPECT_EQ(pixelValues.size[1], gridH * gridW);
+    EXPECT_EQ(pixelValues.size[3], 14);
+    EXPECT_EQ(pixelValues.size[4], 14);
+}
+
+TEST(Vlm_PaddleOCRVLPreprocess, BuildPromptRepeatsImagePlaceholder)
+{
+    String prompt = buildPaddleOCRVLPrompt("OCR", 3);
+    EXPECT_EQ(prompt, "<|begin_of_sentence|>User: <|IMAGE_START|>"
+                       "<|IMAGE_PLACEHOLDER|><|IMAGE_PLACEHOLDER|><|IMAGE_PLACEHOLDER|>"
+                       "<|IMAGE_END|>OCR\nAssistant:\n");
 }
 
 class TestLocalVLMModel : public LocalVLMModelBase
