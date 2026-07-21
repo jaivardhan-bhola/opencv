@@ -51,6 +51,16 @@ TEST(Vlm_Model, MissingModelNameThrows_Gemini)
     EXPECT_THROW(create(VLM_MODEL_GEMINI, "", "new", "cloud", "some-api-key"), cv::Exception);
 }
 
+TEST(Vlm_Model, UnknownEngineThrows_PaddleOCRVL)
+{
+    EXPECT_THROW(create(VLM_MODEL_PADDLEOCR_VL, "/nonexistent/model/dir", "tensorrt"), cv::Exception);
+}
+
+TEST(Vlm_Model, UnknownEngineThrows_GraniteDocling)
+{
+    EXPECT_THROW(create(VLM_MODEL_GRANITE_DOCLING, "/nonexistent/model/dir", "tensorrt"), cv::Exception);
+}
+
 TEST(Vlm_Model, EndToEnd_PaddleOCRVL)
 {
     std::string modelDir = cv::utils::getConfigurationParameterString("OPENCV_TEST_VLM_PADDLEOCR_VL_DIR");

@@ -18,10 +18,6 @@ struct HttpResponse
     std::string body;
 };
 
-// POSTs jsonBody to url with the given "Name: Value" headers over HTTPS via libcurl.
-// Throws cv::Exception if the transport itself fails (DNS/connect/TLS/etc.), or if OpenCV
-// was built without libcurl available. Non-2xx HTTP responses are NOT thrown here -- the
-// caller inspects HttpResponse::statusCode/body.
 HttpResponse httpPostJson(const std::string& url, const std::string& jsonBody,
                           const std::vector<std::string>& headers);
 

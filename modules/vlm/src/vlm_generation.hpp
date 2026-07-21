@@ -14,11 +14,6 @@ namespace cv { namespace vlm {
 
 int argmaxLastToken(const Mat& logits);
 
-// Runs the shared KV-cache prefill/decode loop common to the PaddleOCR-VL and
-// Granite-Docling-258M decoders: prefill with promptInputsEmbeds, then greedily decode
-// (argmax) one token at a time via embedNet + decoderNet until eosTokenId is produced or
-// maxNewTokens is reached. Calls decoderNet.enableKVCache() itself; caller is responsible
-// for resetting decoderNet's KV-cache (resetKVCache()) between independent generations.
 std::vector<int> generateWithKVCache(dnn::Net& embedNet, dnn::Net& decoderNet,
                                       const Mat& promptInputsEmbeds, int promptLen,
                                       int maxNewTokens, int eosTokenId);

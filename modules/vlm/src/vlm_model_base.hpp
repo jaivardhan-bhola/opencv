@@ -11,10 +11,6 @@
 
 namespace cv { namespace vlm {
 
-// Implements the one part of VLMModel that's identical across every engine, local or
-// cloud: document-level input handling (currently single-image only). reset() and
-// setPreferableDevice() stay pure virtual here since their meaning differs between
-// on-device engines (see LocalVLMModelBase) and cloud engines (no-ops, see cloud_engine.cpp).
 class VLMModelBase : public VLMModel
 {
 public:
