@@ -20,6 +20,7 @@ public:
     float softcap = 0.f;
     bool do_rotary = false;
     bool rotary_interleaved = false;
+    Ptr<RotaryEmbeddingLayer> ropeQ, ropeK;
 
     GroupQueryAttentionLayerImpl(const LayerParams& params) {
         setParamsFrom(params);
@@ -33,6 +34,18 @@ public:
         CV_CheckGT(num_heads, 0, "GroupQueryAttention: num_heads must be > 0");
         CV_CheckGT(kv_num_heads, 0, "GroupQueryAttention: kv_num_heads must be > 0");
         CV_CheckEQ(num_heads % kv_num_heads, 0, "GroupQueryAttention: num_heads must be a multiple of kv_num_heads");
+
+        if (do_rotary) {
+            LayerParams lpQ;
+            lpQ.set("num_heads", num_heads);
+            lpQ.set("interleaved", rotary_interleaved ? 1 : 0);
+            ropeQ = RotaryEmbeddingLayer::create(lpQ);
+
+            LayerParams lpK;
+            lpK.set("num_heads", kv_num_heads);
+            lpK.set("interleaved", rotary_interleaved ? 1 : 0);
+            ropeK = RotaryEmbeddingLayer::create(lpK);
+        }
     }
 
     virtual bool supportBackend(int backendId) CV_OVERRIDE {
@@ -45,7 +58,7 @@ public:
                           std::vector<MatType>& outputs,
                           std::vector<MatType>& internals) const CV_OVERRIDE {
         outputs.assign(3, inputs[0]);
-        internals.clear();
+        internals.assign(requiredInternals, inputs[0]);
     }
 
     virtual bool getMemoryShapes(const std::vector<MatShape>& inputs,
@@ -66,15 +79,19 @@ public:
         outputs[0] = MatShape{B, S, num_heads * D};
         outputs[1] = MatShape{B, kv_num_heads, Sp + S, D};
         outputs[2] = MatShape{B, kv_num_heads, Sp + S, D};
-        internals.clear();
+
+        internals.assign(1, MatShape{B, num_heads, S, D});     // Q
+        internals.push_back(MatShape{B, kv_num_heads, S, D});  // Knew
+        internals.push_back(MatShape{B, kv_num_heads, S, D});  // Vnew
+        internals.push_back(MatShape{B, num_heads, S, D});     // outHeadsMajor
         return false;
     }
 
-    static void splitHeads(const Mat& x, int B, int S, int nH, int D, std::vector<float>& out) {
+    static void splitHeads(const Mat& x, int B, int S, int nH, int D, Mat& out) {
         CV_Assert(x.isContinuous());
-        out.resize((size_t)B * nH * S * D);
+        CV_Assert(out.isContinuous());
         const float* src = x.ptr<float>();
-        float* dst = out.data();
+        float* dst = out.ptr<float>();
         parallel_for_(Range(0, B * S), [&](const Range& r) {
             for (int bs = r.start; bs < r.end; ++bs) {
                 const int b = bs / S;
@@ -87,15 +104,9 @@ public:
         });
     }
 
-    void applyRotary(std::vector<float>& buf, int B, int nH, int S, int D,
+    void applyRotary(const Ptr<RotaryEmbeddingLayer>& rope, Mat& x, int B, int nH, int S, int D,
                      const Mat& cosCache, const Mat& sinCache, const Mat& positionIds) const {
         int sizes4[4] = {B, nH, S, D};
-        Mat x(4, sizes4, CV_32F, buf.data());
-
-        LayerParams lp;
-        lp.set("num_heads", nH);
-        lp.set("interleaved", rotary_interleaved ? 1 : 0);
-        Ptr<RotaryEmbeddingLayer> rope = RotaryEmbeddingLayer::create(lp);
 
         std::vector<Mat> ropeInputs = {x, cosCache, sinCache, positionIds};
         std::vector<Mat> ropeOutputs = {Mat(4, sizes4, CV_32F)};
@@ -116,9 +127,15 @@ public:
             return;
         }
 
-        std::vector<Mat> inputs, outputs;
+        std::vector<Mat> inputs, outputs, internals;
         inputs_arr.getMatVector(inputs);
         outputs_arr.getMatVector(outputs);
+        internals_arr.getMatVector(internals);
+        CV_Assert(internals.size() == 4);
+        Mat& Q = internals[0];
+        Mat& Knew = internals[1];
+        Mat& Vnew = internals[2];
+        Mat& outHeadsMajor = internals[3];
 
         const Mat& query = inputs[0];
         const Mat& key = inputs[1];
@@ -140,7 +157,6 @@ public:
         const int Skv = Sp + S;
         const int groupSize = num_heads / kv_num_heads;
 
-        std::vector<float> Q, Knew, Vnew;
         splitHeads(query, B, S, num_heads, D, Q);
         splitHeads(key, B, S, kv_num_heads, D, Knew);
         splitHeads(value, B, S, kv_num_heads, D, Vnew);
@@ -168,8 +184,8 @@ public:
         }
 
         if (do_rotary) {
-            applyRotary(Q, B, num_heads, S, D, cosCache, sinCache, positionIds);
-            applyRotary(Knew, B, kv_num_heads, S, D, cosCache, sinCache, positionIds);
+            applyRotary(ropeQ, Q, B, num_heads, S, D, cosCache, sinCache, positionIds);
+            applyRotary(ropeK, Knew, B, kv_num_heads, S, D, cosCache, sinCache, positionIds);
         }
 
         Mat& presentKey = outputs[1];
@@ -190,8 +206,8 @@ public:
                         std::memcpy(dstK, srcK, sizeof(float) * Sp * D);
                         std::memcpy(dstV, srcV, sizeof(float) * Sp * D);
                     }
-                    const float* newK = Knew.data() + (((size_t)b * kv_num_heads + h) * S) * D;
-                    const float* newV = Vnew.data() + (((size_t)b * kv_num_heads + h) * S) * D;
+                    const float* newK = Knew.ptr<float>() + (((size_t)b * kv_num_heads + h) * S) * D;
+                    const float* newV = Vnew.ptr<float>() + (((size_t)b * kv_num_heads + h) * S) * D;
                     std::memcpy(dstK + (size_t)Sp * D, newK, sizeof(float) * S * D);
                     std::memcpy(dstV + (size_t)Sp * D, newV, sizeof(float) * S * D);
                 }
@@ -200,7 +216,6 @@ public:
 
         const float effScale = (scale > 0.f) ? scale : (1.f / std::sqrt(static_cast<float>(D)));
 
-        std::vector<float> outHeadsMajor((size_t)B * num_heads * S * D);
         parallel_for_(Range(0, B * num_heads), [&](const Range& r) {
             std::vector<float> scores(Skv);
             for (int bh = r.start; bh < r.end; ++bh) {
@@ -210,10 +225,10 @@ public:
                 const int validLenB = validLen[b];
                 const int padOffB = padOffset[b];
 
-                const float* Qbh = Q.data() + (size_t)bh * S * D;
+                const float* Qbh = Q.ptr<float>() + (size_t)bh * S * D;
                 const float* Kbh = presentKey.ptr<float>() + (((size_t)b * kv_num_heads + kvh) * Skv) * D;
                 const float* Vbh = presentValue.ptr<float>() + (((size_t)b * kv_num_heads + kvh) * Skv) * D;
-                float* outBh = outHeadsMajor.data() + (size_t)bh * S * D;
+                float* outBh = outHeadsMajor.ptr<float>() + (size_t)bh * S * D;
 
                 for (int i = 0; i < S; ++i) {
                     const int queryPos = validLenB - S + i;
@@ -256,7 +271,7 @@ public:
             for (int bh = r.start; bh < r.end; ++bh) {
                 const int b = bh / num_heads;
                 const int h = bh % num_heads;
-                const float* src = outHeadsMajor.data() + (size_t)bh * S * D;
+                const float* src = outHeadsMajor.ptr<float>() + (size_t)bh * S * D;
                 for (int s = 0; s < S; ++s) {
                     float* dst = outPtr + (((size_t)b * S + s) * num_heads + h) * D;
                     std::memcpy(dst, src + (size_t)s * D, sizeof(float) * D);

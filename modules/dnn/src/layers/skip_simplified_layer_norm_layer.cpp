@@ -12,10 +12,16 @@ namespace cv { namespace dnn {
 class SkipSimplifiedLayerNormalizationLayerImpl CV_FINAL : public SkipSimplifiedLayerNormalizationLayer {
 public:
     float epsilon;
+    Ptr<RMSNormLayer> rms;
 
     SkipSimplifiedLayerNormalizationLayerImpl(const LayerParams& params) {
         setParamsFrom(params);
         epsilon = params.get<float>("epsilon", 1e-5f);
+
+        LayerParams rmsParams;
+        rmsParams.set("axis", -1);
+        rmsParams.set("epsilon", epsilon);
+        rms = RMSNormLayer::create(rmsParams);
     }
 
     virtual bool supportBackend(int backendId) CV_OVERRIDE {
@@ -87,10 +93,6 @@ public:
             });
         }
 
-        LayerParams rmsParams;
-        rmsParams.set("axis", -1);
-        rmsParams.set("epsilon", epsilon);
-        Ptr<RMSNormLayer> rms = RMSNormLayer::create(rmsParams);
         std::vector<Mat> rmsInputs = {sumOut, gamma};
         std::vector<Mat> rmsOutputs = {outputs[0]};
         std::vector<Mat> rmsInternals;
