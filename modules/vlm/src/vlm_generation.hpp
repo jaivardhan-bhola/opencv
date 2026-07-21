@@ -14,6 +14,9 @@ namespace cv { namespace vlm {
 
 int argmaxLastToken(const Mat& logits);
 
+void scatterImageFeatures(Mat& inputsEmbeds, const std::vector<int>& tokens,
+                           int imageTokenId, const Mat& imageFeatures);
+
 std::vector<int> generateWithKVCache(dnn::Net& embedNet, dnn::Net& decoderNet,
                                       const Mat& promptInputsEmbeds, int promptLen,
                                       int maxNewTokens, int eosTokenId);
