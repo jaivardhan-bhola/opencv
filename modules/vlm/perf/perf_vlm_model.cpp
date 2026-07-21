@@ -7,6 +7,7 @@
 #include "perf_precomp.hpp"
 #include "opencv2/core/utils/configuration.private.hpp"
 #include "../src/base64.hpp"
+#include "../src/vlm_generation.hpp"
 
 namespace opencv_test {
 
@@ -22,6 +23,22 @@ PERF_TEST(Vlm_Base64, EncodePngSizedBuffer)
         encoded = cv::vlm::base64Encode(data.data(), data.size());
     }
 
+    SANITY_CHECK_NOTHING();
+}
+
+PERF_TEST(Vlm_Generation, ArgmaxLastToken)
+{
+    int sizes[] = {1, 1, 151936};
+    Mat logits(3, sizes, CV_32F);
+    cv::randu(logits, -10.f, 10.f);
+
+    int result = 0;
+    TEST_CYCLE()
+    {
+        result = cv::vlm::argmaxLastToken(logits);
+    }
+
+    EXPECT_GE(result, 0);
     SANITY_CHECK_NOTHING();
 }
 

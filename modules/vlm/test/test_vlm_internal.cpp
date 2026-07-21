@@ -147,6 +147,7 @@ class TestLocalVLMModel : public LocalVLMModelBase
 {
 public:
     using LocalVLMModelBase::registerNets;
+    using LocalVLMModelBase::setLastTokensUsed;
 
     String infer(InputArray, const String&, int) CV_OVERRIDE { return String(); }
 };
@@ -178,6 +179,22 @@ TEST(Vlm_LocalModelBase, SetDeviceCpuAndCudaDoNotThrow)
     model.registerNets(vision, embed, decoder);
     EXPECT_NO_THROW(model.setPreferableDevice("cpu"));
     EXPECT_NO_THROW(model.setPreferableDevice("cuda"));
+}
+
+TEST(Vlm_LocalModelBase, LastTokensUsedDefaultsToUnknown)
+{
+    TestLocalVLMModel model;
+    EXPECT_EQ(model.lastTokensUsed(), -1);
+}
+
+TEST(Vlm_LocalModelBase, LastTokensUsedReflectsSetValue)
+{
+    TestLocalVLMModel model;
+    model.setLastTokensUsed(123);
+    EXPECT_EQ(model.lastTokensUsed(), 123);
+
+    model.setLastTokensUsed(456);
+    EXPECT_EQ(model.lastTokensUsed(), 456);
 }
 
 }} // namespace opencv_test::(anonymous)
