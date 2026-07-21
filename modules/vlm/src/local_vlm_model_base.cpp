@@ -22,6 +22,16 @@ void LocalVLMModelBase::reset()
     decoderNet_->resetKVCache();
 }
 
+int LocalVLMModelBase::lastTokensUsed() const
+{
+    return lastTokensUsed_;
+}
+
+void LocalVLMModelBase::setLastTokensUsed(int tokens)
+{
+    lastTokensUsed_ = tokens;
+}
+
 void LocalVLMModelBase::setPreferableDevice(const String& device)
 {
     CV_Assert(visionNet_ && embedNet_ && decoderNet_);

@@ -175,6 +175,7 @@ public:
 
         std::vector<int> generated = generateWithKVCache(embedNet_, decoderNet_, inputsEmbeds,
                                                           promptLen, max_new_tokens, eosTokenId_);
+        setLastTokensUsed(promptLen + (int)generated.size());
         return tokenizer_.decode(generated);
     }
 

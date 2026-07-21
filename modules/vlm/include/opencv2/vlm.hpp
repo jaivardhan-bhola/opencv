@@ -89,6 +89,15 @@ public:
     inferDocument() already does this per page internally.
     */
     CV_WRAP virtual void reset() = 0;
+
+    /** @brief Total tokens (prompt + completion) reported by the most recent infer() call.
+
+    Cloud model types report this from the provider's response; local model types report
+    prompt length + generated token count from their own tokenizer/generation loop. The
+    base class default of -1 (unknown) only applies to a VLMModel subclass that overrides
+    neither.
+    */
+    CV_WRAP virtual int lastTokensUsed() const { return -1; }
 };
 
 /** @brief Create a vision-language OCR / document-understanding engine.

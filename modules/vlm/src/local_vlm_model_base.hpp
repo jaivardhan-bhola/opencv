@@ -17,14 +17,21 @@ class LocalVLMModelBase : public VLMModelBase
 public:
     void reset() CV_OVERRIDE;
     void setPreferableDevice(const String& device) CV_OVERRIDE;
+    int lastTokensUsed() const CV_OVERRIDE;
 
 protected:
     void registerNets(dnn::Net& visionNet, dnn::Net& embedNet, dnn::Net& decoderNet);
+
+    // Called by subclasses' infer() with promptLen + the generated token count, once
+    // per call, so lastTokensUsed() reports real prompt+completion tokens like the cloud
+    // engines do instead of the VLMModel base class's default -1 (unknown).
+    void setLastTokensUsed(int tokens);
 
 private:
     dnn::Net* visionNet_ = nullptr;
     dnn::Net* embedNet_ = nullptr;
     dnn::Net* decoderNet_ = nullptr;
+    int lastTokensUsed_ = -1;
 };
 
 }} // namespace cv::vlm

@@ -70,6 +70,11 @@ String extractOrThrow(const FileNode& node, const String& provider)
     return (String)node;
 }
 
+int readIntOr(const FileNode& node, int fallback)
+{
+    return node.empty() ? fallback : (int)node;
+}
+
 class CloudVLMModel CV_FINAL : public VLMModelBase
 {
 public:
@@ -89,6 +94,11 @@ public:
 
     void reset() CV_OVERRIDE
     {
+    }
+
+    int lastTokensUsed() const CV_OVERRIDE
+    {
+        return lastTokensUsed_;
     }
 
     String infer(InputArray image, const String& prompt, int max_new_tokens) CV_OVERRIDE
@@ -134,6 +144,7 @@ private:
         checkHttpStatus(response, "OpenAI-compatible");
 
         FileStorage fs = parseJson(response.body, "OpenAI-compatible");
+        lastTokensUsed_ = readIntOr(fs["usage"]["total_tokens"], -1);
         FileNode choices = fs["choices"];
         if (choices.empty() || choices.size() == 0)
             CV_Error(Error::StsError, "vlm: unexpected OpenAI-compatible response shape (missing choices)");
@@ -161,6 +172,9 @@ private:
         checkHttpStatus(response, "Anthropic");
 
         FileStorage fs = parseJson(response.body, "Anthropic");
+        int inputTokens = readIntOr(fs["usage"]["input_tokens"], 0);
+        int outputTokens = readIntOr(fs["usage"]["output_tokens"], 0);
+        lastTokensUsed_ = (inputTokens > 0 || outputTokens > 0) ? inputTokens + outputTokens : -1;
         FileNode content = fs["content"];
         if (content.empty() || content.size() == 0)
             CV_Error(Error::StsError, "vlm: unexpected Anthropic response shape (missing content)");
@@ -186,6 +200,7 @@ private:
         checkHttpStatus(response, "Gemini");
 
         FileStorage fs = parseJson(response.body, "Gemini");
+        lastTokensUsed_ = readIntOr(fs["usageMetadata"]["totalTokenCount"], -1);
         FileNode candidates = fs["candidates"];
         if (candidates.empty() || candidates.size() == 0)
             CV_Error(Error::StsError, "vlm: unexpected Gemini response shape (missing candidates)");
@@ -198,6 +213,7 @@ private:
     VLMModelType modelType_;
     String modelName_;
     String apiKey_;
+    int lastTokensUsed_ = -1;
 };
 
 } // namespace
