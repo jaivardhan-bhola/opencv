@@ -12,10 +12,6 @@
 
 namespace cv { namespace vlm {
 
-// Adds the parts shared by engines that run locally from ONNX weights: per-page KV-cache
-// reset and device forwarding to the three underlying nets. Local engine subclasses only
-// need to implement infer() plus their own config loading and net construction, then call
-// registerNets() once all three nets exist.
 class LocalVLMModelBase : public VLMModelBase
 {
 public:

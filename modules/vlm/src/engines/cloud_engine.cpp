@@ -85,12 +85,10 @@ public:
 
     void setPreferableDevice(const String&) CV_OVERRIDE
     {
-        // No local compute device for a hosted API; intentionally a no-op.
     }
 
     void reset() CV_OVERRIDE
     {
-        // Each infer() call is an independent, stateless HTTP request; nothing to reset.
     }
 
     String infer(InputArray image, const String& prompt, int max_new_tokens) CV_OVERRIDE
@@ -115,7 +113,6 @@ public:
     }
 
 private:
-    // Shared by OpenAI and Grok (xAI), whose chat/completions APIs are wire-compatible.
     String inferOpenAICompatible(const String& url, const std::string& imageB64,
                                   const String& prompt, int maxNewTokens)
     {
