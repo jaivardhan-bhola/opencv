@@ -3379,8 +3379,11 @@ struct ElementWiseIntDispatch<SignFunctor>
     template<typename T>
     static inline void apply_(const T* sp, T* dp, size_t n)
     {
-        for (size_t i = 0; i < n; ++i)
-            dp[i] = sp[i] > 0 ? (T)1 : (sp[i] < 0 ? (T)-1 : (T)0);
+        const int nstripes = getNumThreads();
+        parallel_for_(Range(0, (int)n), [&](const Range& r) {
+            for (int i = r.start; i < r.end; ++i)
+                dp[i] = sp[i] > 0 ? (T)1 : (sp[i] < 0 ? (T)-1 : (T)0);
+        }, nstripes);
     }
 
     static inline bool apply(const SignFunctor&, const Mat& src, Mat& dst)
