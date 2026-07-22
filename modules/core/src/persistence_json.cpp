@@ -297,6 +297,11 @@ protected:
     FileStorage_API* fs;
 };
 
+// Larger than CV_FS_MAX_LEN: this only sizes JSONParser::buf, a heap member (not a
+// stack buffer like the XML/YAML writers), so it can safely hold long single-string
+// values such as whole-document text returned by external VLM/OCR API responses.
+#define CV_FS_JSON_MAX_STRING_LEN (1 * 1024 * 1024)
+
 class JSONParser : public FileStorageParser
 {
 public:
@@ -545,13 +550,13 @@ public:
                             sz = (int)(ptr - beg);
                             if( sz > 0 )
                             {
-                                if (i + sz >= CV_FS_MAX_LEN)
+                                if (i + sz >= CV_FS_JSON_MAX_STRING_LEN)
                                     CV_PARSE_ERROR_CPP("string is too long");
                                 memcpy(buf + i, beg, sz);
                                 i += sz;
                             }
                             ptr++;
-                            if (i + 1 >= CV_FS_MAX_LEN)
+                            if (i + 1 >= CV_FS_JSON_MAX_STRING_LEN)
                                 CV_PARSE_ERROR_CPP("string is too long");
                             switch ( *ptr )
                             {
@@ -568,7 +573,7 @@ public:
                                 uint32_t codepoint = parseUnicodeEscape(ptr);
                                 std::string utf8;
                                 appendUtf8(utf8, codepoint);
-                                if (i + (int)utf8.size() >= CV_FS_MAX_LEN)
+                                if (i + (int)utf8.size() >= CV_FS_JSON_MAX_STRING_LEN)
                                     CV_PARSE_ERROR_CPP("string is too long");
                                 memcpy(buf + i, utf8.data(), utf8.size());
                                 i += (int)utf8.size();
@@ -587,7 +592,7 @@ public:
                             sz = (int)(ptr - beg);
                             if( sz > 0 )
                             {
-                                if (i + sz >= CV_FS_MAX_LEN)
+                                if (i + sz >= CV_FS_JSON_MAX_STRING_LEN)
                                     CV_PARSE_ERROR_CPP("string is too long");
                                 memcpy(buf + i, beg, sz);
                                 i += sz;
@@ -604,7 +609,7 @@ public:
                             sz = (int)(ptr - beg);
                             if( sz > 0 )
                             {
-                                if (i + sz >= CV_FS_MAX_LEN)
+                                if (i + sz >= CV_FS_JSON_MAX_STRING_LEN)
                                     CV_PARSE_ERROR_CPP("string is too long");
                                 memcpy(buf + i, beg, sz);
                                 i += sz;
@@ -840,7 +845,7 @@ public:
     }
 
     FileStorage_API* fs;
-    char buf[CV_FS_MAX_LEN+1024];
+    char buf[CV_FS_JSON_MAX_STRING_LEN+1024];
 };
 
 Ptr<FileStorageEmitter> createJSONEmitter(FileStorage_API* fs)
