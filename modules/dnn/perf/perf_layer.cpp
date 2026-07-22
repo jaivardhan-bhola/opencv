@@ -502,6 +502,7 @@ struct Layer_SkipSimplifiedLayerNorm : public TestBaseWithParam<tuple<Backend, T
         net.connect(0, 2, id, 2);
         if (hasBias)
             net.connect(0, 3, id, 3);
+        net.registerOutput(lp.name + "_output", id, 0);
 
         {
             std::vector<String> inpNames{"input", "skip", "gamma"};
