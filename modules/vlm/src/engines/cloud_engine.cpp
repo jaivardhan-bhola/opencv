@@ -192,9 +192,12 @@ private:
              << "\"generationConfig\":{\"maxOutputTokens\":" << maxNewTokens << "}"
              << "}";
 
-        String url = cv::format("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
-                                 modelName_.c_str(), apiKey_.c_str());
-        std::vector<std::string> headers = {"Content-Type: application/json"};
+        String url = cv::format("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent",
+                                 modelName_.c_str());
+        std::vector<std::string> headers = {
+            "Content-Type: application/json",
+            "x-goog-api-key: " + apiKey_
+        };
 
         HttpResponse response = httpPostJson(url, body.str(), headers);
         checkHttpStatus(response, "Gemini");
