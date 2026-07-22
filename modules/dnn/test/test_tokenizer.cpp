@@ -237,12 +237,6 @@ TEST(Tokenizer_SentencePiece, Tokenizer_Gemma2_Roundtrip) {
     }
 }
 
-TEST(Tokenizer_VLM, Tokenizer_GraniteDocling) {
-    // vlm-ocr shares gpt2's regex-splitting pattern, so this must match Tokenizer_GPT2_Tokens.
-    Tokenizer tok = Tokenizer::loadVLM(_tf("gpt2/"), "granite-docling");
-    EXPECT_EQ(tok.encode("hello world"), (std::vector<int>{31373, 995}));
-}
-
 TEST(Tokenizer_VLM, Tokenizer_PaddleOcrVl) {
     // paddleocr-vl goes through the same HF-tokenizer.json loader as the Gemma method.
     Tokenizer tok = Tokenizer::loadVLM(_tf("gemma3/"), "paddleocr-vl");
@@ -251,6 +245,45 @@ TEST(Tokenizer_VLM, Tokenizer_PaddleOcrVl) {
 
 TEST(Tokenizer_VLM, Tokenizer_UnsupportedModelName) {
     EXPECT_ANY_THROW(Tokenizer::loadVLM(_tf("gpt2/"), "not-a-real-model"));
+}
+
+static void checkAgainstHfTestData(Tokenizer& tok, const std::string& goldenPath) {
+    cv::FileStorage fs(goldenPath, cv::FileStorage::READ | cv::FileStorage::FORMAT_JSON);
+    ASSERT_TRUE(fs.isOpened()) << "Failed to open " << goldenPath;
+
+    cv::FileNode samples = fs["samples"];
+    for (auto it = samples.begin(); it != samples.end(); ++it) {
+        cv::FileNode sample = *it;
+        std::string text;
+        sample["text"] >> text;
+        std::vector<int> expected;
+        sample["ids"] >> expected;
+
+        EXPECT_EQ(tok.encode(text), expected);
+        EXPECT_EQ(tok.decode(expected), text);
+    }
+}
+
+TEST(Tokenizer_VLM, Tokenizer_GraniteDocling_RealModel) {
+    Tokenizer tok = Tokenizer::loadVLM(_tf("granite/"), "granite-docling");
+    std::vector<int> ids = tok.encode("hello world");
+    EXPECT_EQ(tok.decode(ids), "hello world");
+}
+
+TEST(Tokenizer_VLM, Tokenizer_GraniteDocling_HfTestData) {
+    Tokenizer tok = Tokenizer::loadVLM(_tf("granite/"), "granite-docling");
+    checkAgainstHfTestData(tok, _tf("granite/granite_hf_testdata.json"));
+}
+
+TEST(Tokenizer_VLM, Tokenizer_PaddleOcrVl_RealModel) {
+    Tokenizer tok = Tokenizer::loadVLM(_tf("paddleocr_vl/"), "paddleocr-vl");
+    std::vector<int> ids = tok.encode("hello world");
+    EXPECT_EQ(tok.decode(ids), "hello world");
+}
+
+TEST(Tokenizer_VLM, Tokenizer_PaddleOcrVl_HfTestData) {
+    Tokenizer tok = Tokenizer::loadVLM(_tf("paddleocr_vl/"), "paddleocr-vl");
+    checkAgainstHfTestData(tok, _tf("paddleocr_vl/paddleocr_vl_hf_testdata.json"));
 }
 
 }}

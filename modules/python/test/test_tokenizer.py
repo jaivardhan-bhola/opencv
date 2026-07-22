@@ -63,11 +63,6 @@ class TokenizerBindingTest(NewOpenCVTests):
             )
             self.assertEqual(tok.decode(expected), text)
 
-    def test_tokenizer_load_vlm_granite_docling(self):
-        # vlm-ocr shares gpt2's regex-splitting pattern, so this must match test_tokenizer_gpt2.
-        tok = cv.dnn.Tokenizer.loadVLM(_tf("gpt2/"), "granite-docling")
-        self.assertEqual(list(tok.encode("hello world")), [31373, 995])
-
     def test_tokenizer_load_vlm_paddleocr_vl(self):
         # paddleocr-vl goes through the same HF-tokenizer.json loader as the Gemma method.
         tok = cv.dnn.Tokenizer.loadVLM(_tf("gemma3/"), "paddleocr-vl")
