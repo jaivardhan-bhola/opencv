@@ -115,6 +115,28 @@ public:
     CV_PROP_RW int width;                  //!< Page width, in pixels.
     CV_PROP_RW int height;                 //!< Page height, in pixels.
     CV_PROP_RW std::vector<Block> blocks;  //!< Layout blocks, in reading order.
+
+    /** @brief Collects all recognized Word%s from this page's title/text/signature blocks,
+    in reading order.
+
+    @note Table cells and form fields carry no per-word breakdown (see Cell::text,
+          Field::value), so those blocks are not searched.
+    @return Words in reading order. For a Line whose Line::words the underlying engine left
+            empty (line-level text only), Word%s are synthesized by splitting Line::text on
+            whitespace; those synthesized Word%s carry text only (default Rect bbox, 0
+            confidence).
+    */
+    CV_WRAP std::vector<Word> getWords() const;
+
+    /** @brief Returns this page's BLOCK_TABLE blocks, in reading order. */
+    CV_WRAP std::vector<Block> getTables() const;
+
+    /** @brief Returns this page's title/text/signature lines, one Line::text per sentence,
+    in reading order.
+
+    @return Non-empty Line::text values; empty lines are skipped.
+    */
+    CV_WRAP std::vector<String> getSentences() const;
 };
 
 /** @brief Run/model metadata for a docRead() call. */

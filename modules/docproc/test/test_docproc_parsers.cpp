@@ -137,4 +137,104 @@ TEST(Docproc_PlainTextParser, WhitespaceAlignedColumnsBecomeTable)
     EXPECT_FALSE(block.cells[2].is_header);
 }
 
+TEST(Docproc_Page, GetWordsCollectsFromTextBearingBlocksOnly)
+{
+    Page page;
+
+    Word w1; w1.text = "Hello";
+    Line titleLine; titleLine.words = {w1};
+    Block title; title.type = BLOCK_TITLE; title.lines = {titleLine};
+
+    Word w2; w2.text = "Some";
+    Word w3; w3.text = "text";
+    Line textLine; textLine.words = {w2, w3};
+    Block text; text.type = BLOCK_TEXT; text.lines = {textLine};
+
+    Cell cell; cell.text = "1"; // table cells carry no Word breakdown
+    Block table; table.type = BLOCK_TABLE; table.cells = {cell};
+
+    page.blocks = {title, text, table};
+
+    std::vector<Word> words = page.getWords();
+    ASSERT_EQ((size_t)3, words.size());
+    EXPECT_EQ("Hello", words[0].text);
+    EXPECT_EQ("Some", words[1].text);
+    EXPECT_EQ("text", words[2].text);
+}
+
+TEST(Docproc_Page, GetWordsSynthesizesFromLineTextWhenWordsEmpty)
+{
+    Page page;
+    Line line; line.text = "Jane Miller works here.";
+    Block text; text.type = BLOCK_TEXT; text.lines = {line};
+    page.blocks = {text};
+
+    std::vector<Word> words = page.getWords();
+    ASSERT_EQ((size_t)4, words.size());
+    EXPECT_EQ("Jane", words[0].text);
+    EXPECT_EQ("Miller", words[1].text);
+    EXPECT_EQ("works", words[2].text);
+    EXPECT_EQ("here.", words[3].text);
+}
+
+TEST(Docproc_Page, GetTablesReturnsOnlyTableBlocksInOrder)
+{
+    Page page;
+    Block text; text.type = BLOCK_TEXT;
+    Block table1; table1.type = BLOCK_TABLE; table1.rows = 1; table1.cols = 1;
+    Block form; form.type = BLOCK_FORM;
+    Block table2; table2.type = BLOCK_TABLE; table2.rows = 2; table2.cols = 2;
+    page.blocks = {text, table1, form, table2};
+
+    std::vector<Block> tables = page.getTables();
+    ASSERT_EQ((size_t)2, tables.size());
+    EXPECT_EQ(1, tables[0].rows);
+    EXPECT_EQ(2, tables[1].rows);
+}
+
+TEST(Docproc_Page, GetSentencesReturnsOneSentencePerLine)
+{
+    Page page;
+    Line line1; line1.text = "Name: Jane Miller";
+    Line line2; line2.text = "Invoice ID: INV-2048";
+    Block block; block.type = BLOCK_TEXT; block.lines = {line1, line2};
+    page.blocks = {block};
+
+    std::vector<String> sentences = page.getSentences();
+    ASSERT_EQ((size_t)2, sentences.size());
+    EXPECT_EQ("Name: Jane Miller", sentences[0]);
+    EXPECT_EQ("Invoice ID: INV-2048", sentences[1]);
+}
+
+TEST(Docproc_Page, GetSentencesSkipsEmptyLines)
+{
+    Page page;
+    Line line1; line1.text = "First.";
+    Line line2; line2.text = "";
+    Line line3; line3.text = "Second.";
+    Block block; block.type = BLOCK_TEXT; block.lines = {line1, line2, line3};
+    page.blocks = {block};
+
+    std::vector<String> sentences = page.getSentences();
+    ASSERT_EQ((size_t)2, sentences.size());
+    EXPECT_EQ("First.", sentences[0]);
+    EXPECT_EQ("Second.", sentences[1]);
+}
+
+TEST(Docproc_Page, GetSentencesSkipsNonTextBearingBlocks)
+{
+    Page page;
+    Line line; line.text = "Real sentence.";
+    Block text; text.type = BLOCK_TEXT; text.lines = {line};
+
+    Cell cell; cell.text = "Not a sentence. Should not appear.";
+    Block table; table.type = BLOCK_TABLE; table.cells = {cell};
+
+    page.blocks = {text, table};
+
+    std::vector<String> sentences = page.getSentences();
+    ASSERT_EQ((size_t)1, sentences.size());
+    EXPECT_EQ("Real sentence.", sentences[0]);
+}
+
 }} // namespace opencv_test::(anonymous)

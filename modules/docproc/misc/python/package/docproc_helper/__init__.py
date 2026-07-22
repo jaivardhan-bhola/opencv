@@ -24,6 +24,14 @@ class _AttrDict(dict):
         self[name] = value
 
 
+class _ConstResult:
+    def __init__(self, value):
+        self._value = value
+
+    def __call__(self):
+        return self._value
+
+
 def _wrap(value):
     if isinstance(value, dict):
         return _AttrDict((k, _wrap(v)) for k, v in value.items())
@@ -60,8 +68,14 @@ def _block_to_dict(block):
 
 
 def _page_to_dict(page):
+    words = [w.text for w in page.getWords()]
+    tables = [_block_to_dict(block) for block in page.getTables()]
+    sentences = list(page.getSentences())
     return {"page_number": page.page_number, "width": page.width, "height": page.height,
-            "blocks": [_block_to_dict(block) for block in page.blocks]}
+            "blocks": [_block_to_dict(block) for block in page.blocks],
+            "getWords": _ConstResult(words),
+            "getTables": _ConstResult(tables),
+            "getSentences": _ConstResult(sentences)}
 
 
 def _result_to_dict(result):
