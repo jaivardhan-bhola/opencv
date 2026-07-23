@@ -146,7 +146,7 @@ private:
         FileStorage fs = parseJson(response.body, "OpenAI-compatible");
         lastTokensUsed_ = readIntOr(fs["usage"]["total_tokens"], -1);
         FileNode choices = fs["choices"];
-        if (choices.empty() || choices.size() == 0)
+        if (choices.size() == 0)
             CV_Error(Error::StsError, "vlm: unexpected OpenAI-compatible response shape (missing choices)");
         return extractOrThrow(choices[0]["message"]["content"], "OpenAI-compatible");
     }
@@ -176,7 +176,7 @@ private:
         int outputTokens = readIntOr(fs["usage"]["output_tokens"], 0);
         lastTokensUsed_ = (inputTokens > 0 || outputTokens > 0) ? inputTokens + outputTokens : -1;
         FileNode content = fs["content"];
-        if (content.empty() || content.size() == 0)
+        if (content.size() == 0)
             CV_Error(Error::StsError, "vlm: unexpected Anthropic response shape (missing content)");
         return extractOrThrow(content[0]["text"], "Anthropic");
     }
@@ -205,10 +205,10 @@ private:
         FileStorage fs = parseJson(response.body, "Gemini");
         lastTokensUsed_ = readIntOr(fs["usageMetadata"]["totalTokenCount"], -1);
         FileNode candidates = fs["candidates"];
-        if (candidates.empty() || candidates.size() == 0)
+        if (candidates.size() == 0)
             CV_Error(Error::StsError, "vlm: unexpected Gemini response shape (missing candidates)");
         FileNode parts = candidates[0]["content"]["parts"];
-        if (parts.empty() || parts.size() == 0)
+        if (parts.size() == 0)
             CV_Error(Error::StsError, "vlm: unexpected Gemini response shape (missing content parts)");
         return extractOrThrow(parts[0]["text"], "Gemini");
     }
