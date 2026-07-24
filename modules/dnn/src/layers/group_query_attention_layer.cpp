@@ -57,6 +57,7 @@ public:
                           const int requiredInternals,
                           std::vector<MatType>& outputs,
                           std::vector<MatType>& internals) const CV_OVERRIDE {
+        CV_CheckType(inputs[0], inputs[0] == CV_32F || inputs[0] == CV_16F, "");
         outputs.assign(3, inputs[0]);
         internals.assign(requiredInternals, inputs[0]);
     }
