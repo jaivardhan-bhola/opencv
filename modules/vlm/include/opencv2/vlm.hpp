@@ -111,8 +111,8 @@ public:
                    "claude-3-5-sonnet-20241022", "gemini-2.0-flash", "grok-2-vision-1212" --
                    required, with no built-in default, since provider model names change over
                    time and a hardcoded guess would eventually go stale and fail confusingly.
-@param engine     cv::dnn::Net engine used to load each underlying ONNX sub-model: "new"
-                  (dnn::ENGINE_NEW) or "ort" (dnn::ENGINE_ORT). Ignored by cloud model types.
+@param engine     cv::dnn::Net engine used to load each underlying ONNX sub-model: "opencv"
+                  (dnn::ENGINE_OPENCV) or "ort" (dnn::ENGINE_ORT). Ignored by cloud model types.
 @param device     For local model types: compute device for all underlying nets, "cpu" or
                   "cuda". For cloud model types: pass "cloud" (there is no local compute
                   device to pick; any value is accepted here and has no effect).

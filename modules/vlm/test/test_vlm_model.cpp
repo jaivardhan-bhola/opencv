@@ -110,7 +110,7 @@ TEST(Vlm_Model, EndToEnd_GraniteDocling)
     std::string imagePath = cv::utils::getConfigurationParameterString("OPENCV_TEST_VLM_IMAGE");
     ASSERT_FALSE(imagePath.empty()) << "OPENCV_TEST_VLM_IMAGE must be set together with OPENCV_TEST_VLM_GRANITE_DOCLING_DIR";
 
-    cv::Ptr<VLMModel> model = create(VLM_MODEL_GRANITE_DOCLING, modelDir);
+    cv::Ptr<VLMModel> model = create(VLM_MODEL_GRANITE_DOCLING, modelDir, "opencv");
     std::vector<cv::String> results = model->inferDocument(imagePath);
     ASSERT_EQ((size_t)1, results.size());
     EXPECT_FALSE(results[0].empty());

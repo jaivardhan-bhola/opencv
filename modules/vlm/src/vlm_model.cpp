@@ -15,11 +15,11 @@ namespace {
 
 int engineFromString(const String& engine)
 {
-    if (engine == "new")
-        return dnn::ENGINE_NEW;
+    if (engine == "opencv")
+        return dnn::ENGINE_OPENCV;
     if (engine == "ort")
         return dnn::ENGINE_ORT;
-    CV_Error(Error::StsBadArg, "vlm: unknown engine '" + engine + "' (expected 'new' or 'ort')");
+    CV_Error(Error::StsBadArg, "vlm: unknown engine '" + engine + "' (expected 'opencv' or 'ort')");
 }
 
 } // namespace
