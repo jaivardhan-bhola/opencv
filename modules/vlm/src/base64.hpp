@@ -4,8 +4,8 @@
 // Copyright (C) 2026, BigVision LLC, all rights reserved.
 // Third party copyrights are property of their respective owners.
 
-#ifndef __OPENCV_VLM_BASE64_HPP__
-#define __OPENCV_VLM_BASE64_HPP__
+#ifndef OPENCV_VLM_BASE64_HPP
+#define OPENCV_VLM_BASE64_HPP
 
 #include <cstddef>
 #include <string>
@@ -16,4 +16,4 @@ std::string base64Encode(const unsigned char* data, size_t size);
 
 }} // namespace cv::vlm
 
-#endif // __OPENCV_VLM_BASE64_HPP__
+#endif // OPENCV_VLM_BASE64_HPP

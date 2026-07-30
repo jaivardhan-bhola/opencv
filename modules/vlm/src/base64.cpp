@@ -4,6 +4,7 @@
 // Copyright (C) 2026, BigVision LLC, all rights reserved.
 // Third party copyrights are property of their respective owners.
 
+#include "precomp.hpp"
 #include "base64.hpp"
 
 namespace cv { namespace vlm {

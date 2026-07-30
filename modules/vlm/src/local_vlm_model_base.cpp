@@ -6,8 +6,38 @@
 
 #include "precomp.hpp"
 #include "local_vlm_model_base.hpp"
+#include "vlm_generation.hpp"
 
 namespace cv { namespace vlm {
+
+String LocalVLMModelBase::infer(InputArray image, const String& prompt, int max_new_tokens)
+{
+    CV_Assert(visionNet_ && embedNet_ && decoderNet_);
+
+    Mat imageBgr = image.getMat();
+    CV_CheckFalse(imageBgr.empty(), "vlm: input image is empty");
+    String actualPrompt = prompt.empty() ? defaultPrompt() : prompt;
+
+    Vec2i dims;
+    Mat imageEmbeds = runVisionEncoder(imageBgr, dims);
+    String fullPrompt = buildPrompt(dims, actualPrompt);
+
+    std::vector<int> tokens = tokenizer_.encode(fullPrompt);
+    int promptLen = (int)tokens.size();
+    std::vector<int64_t> inputIdsData(tokens.begin(), tokens.end());
+    int idsShape[] = {1, promptLen};
+    Mat inputIds(2, idsShape, CV_64S, inputIdsData.data());
+
+    embedNet_->setInput(inputIds, "input_ids");
+    Mat inputsEmbeds = embedNet_->forward();
+
+    scatterImageFeatures(inputsEmbeds, tokens, imageTokenId_, imageEmbeds);
+
+    std::vector<int> generated = generateWithKVCache(*embedNet_, *decoderNet_, inputsEmbeds,
+                                                      promptLen, max_new_tokens, eosTokenId_);
+    setLastTokensUsed(promptLen + (int)generated.size());
+    return tokenizer_.decode(generated);
+}
 
 void LocalVLMModelBase::registerNets(dnn::Net& visionNet, dnn::Net& embedNet, dnn::Net& decoderNet)
 {
@@ -49,7 +79,8 @@ void LocalVLMModelBase::setPreferableDevice(const String& device)
     }
     else
     {
-        CV_Error(Error::StsBadArg, "vlm: unknown device '" + device + "' (expected 'cpu' or 'cuda')");
+        CV_Error(Error::StsBadArg,
+                 "vlm: unknown device '" + device + "' (expected 'cpu' or 'cuda')");
     }
 
     dnn::Net* nets[] = {visionNet_, embedNet_, decoderNet_};

@@ -4,8 +4,8 @@
 // Copyright (C) 2026, BigVision LLC, all rights reserved.
 // Third party copyrights are property of their respective owners.
 
-#ifndef __OPENCV_VLM_PRECOMP_HPP__
-#define __OPENCV_VLM_PRECOMP_HPP__
+#ifndef OPENCV_VLM_PRECOMP_HPP
+#define OPENCV_VLM_PRECOMP_HPP
 
 #include <string>
 #include <vector>
@@ -17,4 +17,4 @@
 #include "opencv2/imgproc.hpp"
 #include "opencv2/vlm.hpp"
 
-#endif // __OPENCV_VLM_PRECOMP_HPP__
+#endif // OPENCV_VLM_PRECOMP_HPP

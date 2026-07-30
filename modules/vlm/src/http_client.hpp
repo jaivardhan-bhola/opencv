@@ -4,8 +4,8 @@
 // Copyright (C) 2026, BigVision LLC, all rights reserved.
 // Third party copyrights are property of their respective owners.
 
-#ifndef __OPENCV_VLM_HTTP_CLIENT_HPP__
-#define __OPENCV_VLM_HTTP_CLIENT_HPP__
+#ifndef OPENCV_VLM_HTTP_CLIENT_HPP
+#define OPENCV_VLM_HTTP_CLIENT_HPP
 
 #include <string>
 #include <vector>
@@ -23,4 +23,4 @@ HttpResponse httpPostJson(const std::string& url, const std::string& jsonBody,
 
 }} // namespace cv::vlm
 
-#endif // __OPENCV_VLM_HTTP_CLIENT_HPP__
+#endif // OPENCV_VLM_HTTP_CLIENT_HPP

@@ -4,8 +4,8 @@
 // Copyright (C) 2026, BigVision LLC, all rights reserved.
 // Third party copyrights are property of their respective owners.
 
-#ifndef __OPENCV_VLM_CONFIG_JSON_HPP__
-#define __OPENCV_VLM_CONFIG_JSON_HPP__
+#ifndef OPENCV_VLM_CONFIG_JSON_HPP
+#define OPENCV_VLM_CONFIG_JSON_HPP
 
 #include "opencv2/core.hpp"
 
@@ -21,4 +21,4 @@ int getIntWithTextConfigFallback(const FileStorage& config, const String& name, 
 
 }} // namespace cv::vlm
 
-#endif // __OPENCV_VLM_CONFIG_JSON_HPP__
+#endif // OPENCV_VLM_CONFIG_JSON_HPP

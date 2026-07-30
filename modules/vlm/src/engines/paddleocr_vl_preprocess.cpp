@@ -19,19 +19,19 @@ void smartResize(int height, int width, int factor, int minPixels, int maxPixels
 {
     if (height < factor)
     {
-        width = (int)std::round((double)(width * factor) / height);
+        width = cvRound((double)(width * factor) / height);
         height = factor;
     }
     if (width < factor)
     {
-        height = (int)std::round((double)(height * factor) / width);
+        height = cvRound((double)(height * factor) / width);
         width = factor;
     }
     CV_CheckLE((double)std::max(height, width) / std::min(height, width), 200.0,
                "vlm: absolute aspect ratio is too large");
 
-    int hBar = (int)std::round((double)height / factor) * factor;
-    int wBar = (int)std::round((double)width / factor) * factor;
+    int hBar = cvRound((double)height / factor) * factor;
+    int wBar = cvRound((double)width / factor) * factor;
     if ((int64_t)hBar * wBar > maxPixels)
     {
         double beta = std::sqrt((double)(height * width) / maxPixels);
@@ -48,12 +48,14 @@ void smartResize(int height, int width, int factor, int minPixels, int maxPixels
     outWidth = wBar;
 }
 
-Mat preprocessImage(const Mat& imageBgr, int patchSize, int mergeSize, int minPixels, int maxPixels,
-                     const Vec3f& mean, const Vec3f& std_, float rescaleFactor, int& gridH, int& gridW)
+Mat preprocessImage(const Mat& imageBgr, int patchSize, int mergeSize, int minPixels,
+                     int maxPixels, const Vec3f& mean, const Vec3f& std_, float rescaleFactor,
+                     int& gridH, int& gridW)
 {
     int factor = patchSize * mergeSize;
     int resizedHeight, resizedWidth;
-    smartResize(imageBgr.rows, imageBgr.cols, factor, minPixels, maxPixels, resizedHeight, resizedWidth);
+    smartResize(imageBgr.rows, imageBgr.cols, factor, minPixels, maxPixels,
+                resizedHeight, resizedWidth);
 
     Mat resized;
     resize(imageBgr, resized, Size(resizedWidth, resizedHeight), 0, 0, INTER_CUBIC);

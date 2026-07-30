@@ -50,12 +50,9 @@ public:
         setPreferableDevice(device);
     }
 
-    String infer(InputArray image, const String& prompt, int max_new_tokens) CV_OVERRIDE
+protected:
+    Mat runVisionEncoder(const Mat& imageBgr, Vec2i& dimsOut) CV_OVERRIDE
     {
-        Mat imageBgr = image.getMat();
-        CV_CheckFalse(imageBgr.empty(), "vlm: input image is empty");
-        String actualPrompt = prompt.empty() ? DEFAULT_PROMPT : prompt;
-
         int gridH, gridW;
         Mat pixelValues = preprocessImage(imageBgr, patchSize_, mergeSize_, minPixels_, maxPixels_,
                                           mean_, std_, rescaleFactor_, gridH, gridW);
@@ -65,32 +62,22 @@ public:
         imageGridThw.at<int64_t>(0, 1) = gridH;
         imageGridThw.at<int64_t>(0, 2) = gridW;
 
-        int imageTokenRepeats = (int)((1LL * gridH * gridW) / mergeSize_ / mergeSize_);
-        std::vector<int> tokens = tokenizer_.encode(buildPaddleOCRVLPrompt(actualPrompt, imageTokenRepeats));
-        int promptLen = (int)tokens.size();
-        std::vector<int64_t> inputIdsData(tokens.begin(), tokens.end());
-        int idsShape[] = {1, promptLen};
-        Mat inputIds(2, idsShape, CV_64S, inputIdsData.data());
-
         visionNet_.setInput(pixelValues, "pixel_values");
         visionNet_.setInput(imageGridThw, "image_grid_thw");
-        Mat imageEmbeds = visionNet_.forward();
-
-        embedNet_.setInput(inputIds, "input_ids");
-        Mat inputsEmbeds = embedNet_.forward();
-
-        scatterImageFeatures(inputsEmbeds, tokens, imageTokenId_, imageEmbeds);
-
-        std::vector<int> generated = generateWithKVCache(embedNet_, decoderNet_, inputsEmbeds,
-                                                          promptLen, max_new_tokens, eosTokenId_);
-        setLastTokensUsed(promptLen + (int)generated.size());
-        return tokenizer_.decode(generated);
+        dimsOut = Vec2i(gridH, gridW);
+        return visionNet_.forward();
     }
+
+    String buildPrompt(const Vec2i& dims, const String& userPrompt) const CV_OVERRIDE
+    {
+        int imageTokenRepeats = (int)((1LL * dims[0] * dims[1]) / mergeSize_ / mergeSize_);
+        return buildPaddleOCRVLPrompt(userPrompt, imageTokenRepeats);
+    }
+
+    String defaultPrompt() const CV_OVERRIDE { return DEFAULT_PROMPT; }
 
 private:
     Net visionNet_, embedNet_, decoderNet_;
-    Tokenizer tokenizer_;
-    int imageTokenId_ = 0, eosTokenId_ = 2;
     int patchSize_ = 14, mergeSize_ = 2, minPixels_ = 28 * 28 * 130, maxPixels_ = 28 * 28 * 1280;
     float rescaleFactor_ = 1.0f / 255.0f;
     Vec3f mean_ = Vec3f(0.5f, 0.5f, 0.5f), std_ = Vec3f(0.5f, 0.5f, 0.5f);

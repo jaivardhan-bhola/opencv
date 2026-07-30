@@ -49,44 +49,31 @@ public:
         setPreferableDevice(device);
     }
 
-    String infer(InputArray image, const String& prompt, int max_new_tokens) CV_OVERRIDE
+protected:
+    Mat runVisionEncoder(const Mat& imageBgr, Vec2i& dimsOut) CV_OVERRIDE
     {
-        Mat imageBgr = image.getMat();
-        CV_CheckFalse(imageBgr.empty(), "vlm: input image is empty");
-        String actualPrompt = prompt.empty() ? DEFAULT_PROMPT : prompt;
-
         int rows, cols;
         Mat pixelValues = tileImage(imageBgr, longestEdge_, maxTileEdge_, mean_, std_, rows, cols);
-        String fullPrompt = buildGraniteDoclingPrompt(rows, cols, imageSeqLen_, actualPrompt);
-
-        std::vector<int> tokens = tokenizer_.encode(fullPrompt);
-        int promptLen = (int)tokens.size();
-        std::vector<int64_t> inputIdsData(tokens.begin(), tokens.end());
-        int idsShape[] = {1, promptLen};
-        Mat inputIds(2, idsShape, CV_64S, inputIdsData.data());
 
         int maskShape[] = {1, pixelValues.size[1], pixelValues.size[3], pixelValues.size[4]};
         Mat pixelAttentionMask(4, maskShape, CV_Bool, Scalar(1));
 
         visionNet_.setInput(pixelValues, "pixel_values");
         visionNet_.setInput(pixelAttentionMask, "pixel_attention_mask");
-        Mat imageFeatures = visionNet_.forward();
-
-        embedNet_.setInput(inputIds, "input_ids");
-        Mat inputsEmbeds = embedNet_.forward();
-
-        scatterImageFeatures(inputsEmbeds, tokens, imageTokenId_, imageFeatures);
-
-        std::vector<int> generated = generateWithKVCache(embedNet_, decoderNet_, inputsEmbeds,
-                                                          promptLen, max_new_tokens, eosTokenId_);
-        setLastTokensUsed(promptLen + (int)generated.size());
-        return tokenizer_.decode(generated);
+        dimsOut = Vec2i(rows, cols);
+        return visionNet_.forward();
     }
+
+    String buildPrompt(const Vec2i& dims, const String& userPrompt) const CV_OVERRIDE
+    {
+        return buildGraniteDoclingPrompt(dims[0], dims[1], imageSeqLen_, userPrompt);
+    }
+
+    String defaultPrompt() const CV_OVERRIDE { return DEFAULT_PROMPT; }
 
 private:
     Net visionNet_, embedNet_, decoderNet_;
-    Tokenizer tokenizer_;
-    int imageTokenId_ = 0, eosTokenId_ = 2, imageSeqLen_ = 64;
+    int imageSeqLen_ = 64;
     int longestEdge_ = 1536, maxTileEdge_ = 512;
     Vec3f mean_ = Vec3f(0.5f, 0.5f, 0.5f), std_ = Vec3f(0.5f, 0.5f, 0.5f);
 };

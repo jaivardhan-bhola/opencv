@@ -4,8 +4,8 @@
 // Copyright (C) 2026, BigVision LLC, all rights reserved.
 // Third party copyrights are property of their respective owners.
 
-#ifndef __OPENCV_VLM_GENERATION_HPP__
-#define __OPENCV_VLM_GENERATION_HPP__
+#ifndef OPENCV_VLM_GENERATION_HPP
+#define OPENCV_VLM_GENERATION_HPP
 
 #include "opencv2/core.hpp"
 #include "opencv2/dnn.hpp"
@@ -23,4 +23,4 @@ std::vector<int> generateWithKVCache(dnn::Net& embedNet, dnn::Net& decoderNet,
 
 }} // namespace cv::vlm
 
-#endif // __OPENCV_VLM_GENERATION_HPP__
+#endif // OPENCV_VLM_GENERATION_HPP

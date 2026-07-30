@@ -4,8 +4,8 @@
 // Copyright (C) 2026, BigVision LLC, all rights reserved.
 // Third party copyrights are property of their respective owners.
 
-#ifndef __OPENCV_VLM_PADDLEOCR_VL_ENGINE_HPP__
-#define __OPENCV_VLM_PADDLEOCR_VL_ENGINE_HPP__
+#ifndef OPENCV_VLM_PADDLEOCR_VL_ENGINE_HPP
+#define OPENCV_VLM_PADDLEOCR_VL_ENGINE_HPP
 
 #include "opencv2/vlm.hpp"
 
@@ -15,4 +15,4 @@ Ptr<VLMModel> createPaddleOCRVLModel(const String& model_dir, int engine, const 
 
 }} // namespace cv::vlm
 
-#endif // __OPENCV_VLM_PADDLEOCR_VL_ENGINE_HPP__
+#endif // OPENCV_VLM_PADDLEOCR_VL_ENGINE_HPP

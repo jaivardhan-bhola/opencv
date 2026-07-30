@@ -4,8 +4,8 @@
 // Copyright (C) 2026, BigVision LLC, all rights reserved.
 // Third party copyrights are property of their respective owners.
 
-#ifndef __OPENCV_VLM_LOCAL_MODEL_BASE_HPP__
-#define __OPENCV_VLM_LOCAL_MODEL_BASE_HPP__
+#ifndef OPENCV_VLM_LOCAL_MODEL_BASE_HPP
+#define OPENCV_VLM_LOCAL_MODEL_BASE_HPP
 
 #include "opencv2/dnn.hpp"
 #include "vlm_model_base.hpp"
@@ -15,6 +15,8 @@ namespace cv { namespace vlm {
 class LocalVLMModelBase : public VLMModelBase
 {
 public:
+    String infer(InputArray image, const String& prompt, int max_new_tokens) CV_OVERRIDE;
+
     void reset() CV_OVERRIDE;
     void setPreferableDevice(const String& device) CV_OVERRIDE;
     int lastTokensUsed() const CV_OVERRIDE;
@@ -22,10 +24,18 @@ public:
 protected:
     void registerNets(dnn::Net& visionNet, dnn::Net& embedNet, dnn::Net& decoderNet);
 
-    // Called by subclasses' infer() with promptLen + the generated token count, once
-    // per call, so lastTokensUsed() reports real prompt+completion tokens like the cloud
-    // engines do instead of the VLMModel base class's default -1 (unknown).
     void setLastTokensUsed(int tokens);
+
+    // Any engine-specific geometry the prompt needs (grid rows/cols, tile rows/cols, ...)
+    // must be written to dimsOut so buildPrompt() below can consume it.
+    virtual Mat runVisionEncoder(const Mat& imageBgr, Vec2i& dimsOut) = 0;
+
+    virtual String buildPrompt(const Vec2i& dims, const String& userPrompt) const = 0;
+
+    virtual String defaultPrompt() const = 0;
+
+    dnn::Tokenizer tokenizer_;
+    int imageTokenId_ = 0, eosTokenId_ = 2;
 
 private:
     dnn::Net* visionNet_ = nullptr;
@@ -36,4 +46,4 @@ private:
 
 }} // namespace cv::vlm
 
-#endif // __OPENCV_VLM_LOCAL_MODEL_BASE_HPP__
+#endif // OPENCV_VLM_LOCAL_MODEL_BASE_HPP

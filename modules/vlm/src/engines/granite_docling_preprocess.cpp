@@ -27,12 +27,12 @@ Mat tileImage(const Mat& imageBgr, int longestEdge, int tileSize,
     if (w0 >= h0)
     {
         newW = longestEdge;
-        newH = std::max(1, (int)std::round((double)longestEdge * h0 / w0));
+        newH = std::max(1, cvRound((double)longestEdge * h0 / w0));
     }
     else
     {
         newH = longestEdge;
-        newW = std::max(1, (int)std::round((double)longestEdge * w0 / h0));
+        newW = std::max(1, cvRound((double)longestEdge * w0 / h0));
     }
 
     Mat resized;

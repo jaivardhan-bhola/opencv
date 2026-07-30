@@ -283,7 +283,10 @@ public:
     using LocalVLMModelBase::registerNets;
     using LocalVLMModelBase::setLastTokensUsed;
 
-    String infer(InputArray, const String&, int) CV_OVERRIDE { return String(); }
+protected:
+    Mat runVisionEncoder(const Mat&, Vec2i& dimsOut) CV_OVERRIDE { dimsOut = Vec2i(0, 0); return Mat(); }
+    String buildPrompt(const Vec2i&, const String&) const CV_OVERRIDE { return String(); }
+    String defaultPrompt() const CV_OVERRIDE { return String(); }
 };
 
 TEST(Vlm_LocalModelBase, ResetWithoutNetsThrows)

@@ -4,8 +4,8 @@
 // Copyright (C) 2026, BigVision LLC, all rights reserved.
 // Third party copyrights are property of their respective owners.
 
-#ifndef __OPENCV_VLM_MODEL_BASE_HPP__
-#define __OPENCV_VLM_MODEL_BASE_HPP__
+#ifndef OPENCV_VLM_MODEL_BASE_HPP
+#define OPENCV_VLM_MODEL_BASE_HPP
 
 #include "opencv2/vlm.hpp"
 
@@ -20,4 +20,4 @@ public:
 
 }} // namespace cv::vlm
 
-#endif // __OPENCV_VLM_MODEL_BASE_HPP__
+#endif // OPENCV_VLM_MODEL_BASE_HPP
