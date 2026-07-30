@@ -15,6 +15,7 @@
 #include <fstream>
 #include <functional>
 #include <sstream>
+#include <sstream>
 #include <unordered_set>
 
 namespace cv { namespace dnn {
@@ -159,6 +160,87 @@ private:
 UnigramTokenizerImpl::UnigramTokenizerImpl(CoreUnigram model, std::unordered_set<std::string> special)
     : model_(std::move(model)), allowedSpecial_(std::move(special)) {}
 
+    std::vector<int> encode(const std::string& text) override {
+        std::vector<int> ids = model.encode(text, allowedSpecial);
+        if (bosTokenId >= 0) {
+            ids.insert(ids.begin(), bosTokenId);
+        }
+        return ids;
+    }
+
+    std::string decode(const std::vector<int>& tokens) override {
+        // Skip the bos token if present at the beginning
+        if (bosTokenId >= 0 && !tokens.empty() && tokens.front() == bosTokenId) {
+            std::vector<int> stripped(tokens.begin() + 1, tokens.end());
+            return model.decode(stripped);
+        }
+        return model.decode(tokens);
+    }
+};
+
+// SentencePiece Unigram (T5-style): CoreUnigram already appends the trailing
+// eos (via post_processor's TemplateProcessing) inside encode() and strips
+// special tokens inside decode(), so this wrapper is a thin pass-through --
+// unlike SentencePieceTokenizerImpl above, it must NOT re-add or re-strip
+// anything itself.
+struct UnigramTokenizerImpl : public Tokenizer::Impl {
+    CoreUnigram model;
+    std::unordered_set<std::string> allowedSpecial;
+
+    explicit UnigramTokenizerImpl(CoreUnigram m,
+                                  std::unordered_set<std::string> special = {})
+        : model(std::move(m)), allowedSpecial(std::move(special)) {}
+
+    std::vector<int> encode(const std::string& text) override {
+        return model.encode(text, allowedSpecial);
+    }
+
+    std::string decode(const std::vector<int>& tokens) override {
+        return model.decode(tokens);
+    }
+};
+
+static std::string expandCaseInsensitiveGroups(const std::string& in) {
+    std::string out;
+    out.reserve(in.size());
+    size_t i = 0;
+    while (i < in.size()) {
+        if (in.compare(i, 4, "(?i:") == 0) {
+            size_t j = i + 4;
+            int depth = 1;
+            while (j < in.size() && depth > 0) {
+                if (in[j] == '(') depth++;
+                else if (in[j] == ')') depth--;
+                if (depth > 0) j++;
+            }
+            std::string inner = in.substr(i + 4, j - (i + 4));
+            out += "(?:";
+            for (char c : inner) {
+                if (std::isalpha(static_cast<unsigned char>(c))) {
+                    out += '[';
+                    out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    out += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                    out += ']';
+                } else {
+                    out += c;
+                }
+            }
+            out += ")";
+            i = (j < in.size()) ? j + 1 : j;
+        } else {
+            out += in[i++];
+        }
+    }
+    return out;
+}
+
+static std::string stripPossessiveQuantifiers(const std::string& in) {
+    std::string out;
+    out.reserve(in.size());
+    for (char c : in) {
+        if (c == '+' && !out.empty()) {
+            char prev = out.back();
+            if (prev == '+' || prev == '*' || prev == '?') {
 std::vector<int> UnigramTokenizerImpl::encode(const std::string& text) {
     return model_.encode(text, allowedSpecial_);
 }
@@ -448,6 +530,70 @@ static std::string stripPossessiveQuantifiers(const std::string& in)
     return out;
 }
 
+static std::string adaptHfPreTokenizerRegex(const std::string& raw) {
+    return stripPossessiveQuantifiers(expandCaseInsensitiveGroups(raw));
+}
+
+static bool findEmbeddedSplitRegex(const cv::FileNode& preTok, std::string& outRegex) {
+    if (preTok.empty()) return false;
+    std::string type;
+    preTok["type"] >> type;
+    if (type == "Sequence") {
+        cv::FileNode list = preTok["pretokenizers"];
+        for (auto it = list.begin(); it != list.end(); ++it) {
+            cv::FileNode child = *it;
+            cv::FileNode regexNode = child["pattern"]["Regex"];
+            if (!regexNode.empty() && regexNode.isString()) {
+                regexNode >> outRegex;
+                return true;
+            }
+        }
+        return false;
+    }
+    cv::FileNode regexNode = preTok["pattern"]["Regex"];
+    if (!regexNode.empty() && regexNode.isString()) {
+        regexNode >> outRegex;
+        return true;
+    }
+    return false;
+}
+
+static std::string detectSplitPattern(const cv::FileStorage& fs) {
+    std::string raw;
+    if (findEmbeddedSplitRegex(fs["pre_tokenizer"], raw))
+        return adaptHfPreTokenizerRegex(raw);
+    return R50K_UTF8;
+            if (prev == '}') {
+                // '}' can either close a {m,n} repetition quantifier (in which
+                // case a following '+' is a possessive quantifier that should
+                // be stripped) or close a \p{...}/\P{...} Unicode property
+                // escape (in which case the following '+' is a normal,
+                // legitimate quantifier applied to the whole \p{...} atom and
+                // must NOT be stripped). Walk back to the matching '{' to
+                // tell these two cases apart.
+                int depth = 1;
+                size_t j = out.size() - 1;
+                while (j > 0 && depth > 0) {
+                    --j;
+                    if (out[j] == '}') ++depth;
+                    else if (out[j] == '{') --depth;
+                }
+                bool isPropertyEscape = (depth == 0 && out[j] == '{' &&
+                    j >= 2 && out[j - 1] == 'p' && out[j - 2] == '\\');
+                if (!isPropertyEscape) {
+                    isPropertyEscape = (depth == 0 && out[j] == '{' &&
+                        j >= 2 && out[j - 1] == 'P' && out[j - 2] == '\\');
+                }
+                if (depth == 0 && out[j] == '{' && !isPropertyEscape) {
+                    continue;
+                }
+            }
+        }
+        out.push_back(c);
+    }
+    return out;
+}
+
 static std::string adaptHfPreTokenizerRegex(const std::string& raw)
 {
     return stripPossessiveQuantifiers(expandCaseInsensitiveGroups(raw));
@@ -568,6 +714,8 @@ static Ptr<Tokenizer::Impl> buildSentencePieceTokenizerImpl(
         }
     }
 
+    int bosTokenId = (mergesAreStringFormat && bosId >= 0) ? bosId : -1;
+    return makePtr<SentencePieceTokenizerImpl>(std::move(gemma), std::move(special), bosTokenId);
     int bosTokenId = (mergesAreStringFormat && bosId >= 0) ? bosId : -1;
     return makePtr<SentencePieceTokenizerImpl>(std::move(gemma), std::move(special), bosTokenId);
 }

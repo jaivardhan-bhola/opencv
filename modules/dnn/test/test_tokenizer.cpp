@@ -237,12 +237,8 @@ TEST(Tokenizer_SentencePiece, Tokenizer_Gemma2_Roundtrip) {
 }
 
 TEST(Tokenizer_VLM, Tokenizer_PaddleOcrVl) {
-    Tokenizer tok = Tokenizer::loadVLM(_tf("gemma3/"), "paddleocr-vl");
+    Tokenizer tok = Tokenizer::load(_tf("gemma3/config.json"));
     EXPECT_EQ(tok.encode("Hello world"), (std::vector<int>{9259, 1902}));
-}
-
-TEST(Tokenizer_VLM, Tokenizer_UnsupportedModelName) {
-    EXPECT_ANY_THROW(Tokenizer::loadVLM(_tf("gpt2/"), "not-a-real-model"));
 }
 
 static void checkAgainstHfTestData(Tokenizer& tok, const std::string& goldenPath) {
@@ -263,24 +259,24 @@ static void checkAgainstHfTestData(Tokenizer& tok, const std::string& goldenPath
 }
 
 TEST(Tokenizer_VLM, Tokenizer_GraniteDocling_RealModel) {
-    Tokenizer tok = Tokenizer::loadVLM(_tf("granite/"), "granite-docling");
+    Tokenizer tok = Tokenizer::load(_tf("granite/config.json"));
     std::vector<int> ids = tok.encode("hello world");
     EXPECT_EQ(tok.decode(ids), "hello world");
 }
 
 TEST(Tokenizer_VLM, Tokenizer_GraniteDocling_HfTestData) {
-    Tokenizer tok = Tokenizer::loadVLM(_tf("granite/"), "granite-docling");
+    Tokenizer tok = Tokenizer::load(_tf("granite/config.json"));
     checkAgainstHfTestData(tok, _tf("granite/granite_hf_testdata.json"));
 }
 
 TEST(Tokenizer_VLM, Tokenizer_PaddleOcrVl_RealModel) {
-    Tokenizer tok = Tokenizer::loadVLM(_tf("paddleocr_vl/"), "paddleocr-vl");
+    Tokenizer tok = Tokenizer::load(_tf("paddleocr_vl/config.json"));
     std::vector<int> ids = tok.encode("hello world");
     EXPECT_EQ(tok.decode(ids), "hello world");
 }
 
 TEST(Tokenizer_VLM, Tokenizer_PaddleOcrVl_HfTestData) {
-    Tokenizer tok = Tokenizer::loadVLM(_tf("paddleocr_vl/"), "paddleocr-vl");
+    Tokenizer tok = Tokenizer::load(_tf("paddleocr_vl/config.json"));
     checkAgainstHfTestData(tok, _tf("paddleocr_vl/paddleocr_vl_hf_testdata.json"));
 }
 
