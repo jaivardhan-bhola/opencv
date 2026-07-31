@@ -151,6 +151,12 @@ TEST(Tokenizer_BPE, Tokenizer_Qwen2_5_Roundtrip) {
     }
 }
 
+TEST(Tokenizer_BPE, Tokenizer_Granite_Roundtrip) {
+    std::string model = _tf("granite/config.json");
+    Tokenizer tok = Tokenizer::load(model);
+    EXPECT_EQ(tok.decode(tok.encode("hello world")), "hello world");
+}
+
 
 TEST(Tokenizer_Gemma, Tokenizer_Gemma3_English) {
     std::string model = _tf("gemma3/config.json");
@@ -235,6 +241,12 @@ TEST(Tokenizer_SentencePiece, Tokenizer_Gemma2_Roundtrip) {
     for (const auto& text : cases) {
         EXPECT_EQ(tok.decode(tok.encode(text)), text);
     }
+}
+
+TEST(Tokenizer_SentencePiece, Tokenizer_PaddleOCR_VL_Roundtrip) {
+    std::string model = _tf("paddleocr_vl/config.json");
+    Tokenizer tok = Tokenizer::load(model);
+    EXPECT_EQ(tok.decode(tok.encode("hello world")), "hello world");
 }
 
 }}
