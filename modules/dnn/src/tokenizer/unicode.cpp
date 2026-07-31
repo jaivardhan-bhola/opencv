@@ -589,6 +589,22 @@ uint32_t unicode_tolower(uint32_t cpt) {
     return cpt;  // Return the original code point if no lowercase mapping is found
 }
 
+uint32_t unicode_strip_accent_base(uint32_t cpt) {
+    // unicode_ranges_nfd is sorted and non-overlapping by 'first'; binary search
+    // for the range whose [first, last] interval contains cpt.
+    auto it = std::upper_bound(unicode_ranges_nfd.begin(), unicode_ranges_nfd.end(), cpt,
+        [](uint32_t value, const range_nfd & range) {
+            return value < range.first;
+        });
+    if (it != unicode_ranges_nfd.begin()) {
+        --it;
+        if (cpt >= it->first && cpt <= it->last) {
+            return it->nfd;
+        }
+    }
+    return cpt;  // No accent-base mapping found, return the original code point
+}
+
 std::vector<std::string> unicode_regex_split(const std::string & text, const std::vector<std::string> & regex_exprs) {
     // unicode categories
     static const std::map<std::string, int> k_ucat_enum = {

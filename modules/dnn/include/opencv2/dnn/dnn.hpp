@@ -2092,12 +2092,19 @@ public:
     /**
      * @brief Encode UTF-8 text to token ids (special tokens currently disabled).
      *
-     * Calls the underlying `CoreBPE::encode` with an empty allowed-special set.
+     * For BPE-family models this calls `CoreBPE::encode` with an empty
+     * allowed-special set, so special-token text in `text` is encoded as
+     * ordinary text rather than recognized as a special token.
      *
      * @param text  UTF-8 input string.
+     * @param text_pair  Optional second UTF-8 input string, for tokenizers
+     *   that support paired-sequence encoding (currently only WordPiece:
+     *   wraps as `[CLS] text [SEP] text_pair [SEP]`). Ignored if empty;
+     *   throws cv::Exception if non-empty and unsupported by the loaded
+     *   tokenizer.
      * @return Vector of token ids (32-bit ids narrowed to int for convenience).
      */
-    CV_WRAP std::vector<int> encode(const std::string& text);
+    CV_WRAP std::vector<int> encode(const std::string& text, const std::string& text_pair = std::string());
 
     CV_WRAP std::string decode(const std::vector<int>& tokens);
     struct Impl;

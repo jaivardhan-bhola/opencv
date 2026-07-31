@@ -8,6 +8,7 @@
 #include "core_bpe.hpp"
 #include "core_gemma.hpp"
 #include "core_unigram.hpp"
+#include "core_wordpiece.hpp"
 
 #include <cctype>
 #include <fstream>
@@ -27,6 +28,8 @@ static std::unordered_map<std::string, ImplRegestry>& tokenizerRegistry() {
 
 CoreBPE buildTokenizerFromJson(cv::FileStorage& fs,
                           std::unordered_set<std::string>* outSpecial = nullptr);
+
+static Ptr<Tokenizer::Impl> buildWordPieceTokenizerImpl(cv::FileStorage& fs, const std::string& dir);
 
 // Opens a tokenizer.json file for FileStorage/JSON parsing while stripping
 // out any oversized field values (currently just "precompiled_charsmap")
@@ -55,6 +58,14 @@ static cv::FileStorage openTokenizerJson(const std::string& json_path,
 struct Tokenizer::Impl {
     virtual ~Impl() {}
     virtual std::vector<int> encode(const std::string& text) = 0;
+    // Two-sequence encode, for models that support pairing a second sequence
+    // (e.g. WordPiece: [CLS] A [SEP] B [SEP]). Default: no pairing support;
+    // ignores an empty text_pair (single-sequence call) and errors otherwise.
+    virtual std::vector<int> encode(const std::string& text, const std::string& text_pair) {
+        if (!text_pair.empty())
+            CV_Error(cv::Error::StsNotImplemented, "This tokenizer does not support paired-sequence encoding");
+        return encode(text);
+    }
     virtual std::string decode(const std::vector<int>& tokens) = 0;
 };
 
@@ -129,6 +140,167 @@ struct UnigramTokenizerImpl : public Tokenizer::Impl {
 
     std::string decode(const std::vector<int>& tokens) override {
         return model.decode(tokens);
+    }
+};
+
+// ASCII punctuation per the reference BasicTokenizer._run_split_on_punc /
+// is_punctuation: treat all non-alnum ASCII printable chars as punctuation,
+// same ranges as Python's chr(i) categories checked there.
+static bool isBertAsciiPunct(uint32_t cpt) {
+    return (cpt >= 33 && cpt <= 47) || (cpt >= 58 && cpt <= 64) ||
+           (cpt >= 91 && cpt <= 96) || (cpt >= 123 && cpt <= 126);
+}
+
+// CJK ranges per the reference BasicTokenizer._is_chinese_char.
+static bool isBertChineseChar(uint32_t cpt) {
+    return (cpt >= 0x4E00 && cpt <= 0x9FFF) ||
+           (cpt >= 0x3400 && cpt <= 0x4DBF) ||
+           (cpt >= 0x20000 && cpt <= 0x2A6DF) ||
+           (cpt >= 0x2A700 && cpt <= 0x2B73F) ||
+           (cpt >= 0x2B740 && cpt <= 0x2B81F) ||
+           (cpt >= 0x2B820 && cpt <= 0x2CEAF) ||
+           (cpt >= 0xF900 && cpt <= 0xFAFF) ||
+           (cpt >= 0x2F800 && cpt <= 0x2FA1F);
+}
+
+struct WordPieceTokenizerImpl : public Tokenizer::Impl {
+    CoreWordPiece model;
+    bool cleanText = true;
+    bool handleChineseChars = true;
+    bool stripAccents = true;
+    bool lowercase = true;
+    int clsId = -1;
+    int sepId = -1;
+    // Added/special tokens from tokenizer.json's "added_tokens" (e.g. "[MASK]")
+    // that must be recognized as literal whole tokens in the input text,
+    // bypassing normalize()/preTokenize()/model.encodeWord() (see encodeSegment()).
+    std::unordered_map<std::string, int> specialToId;
+
+    explicit WordPieceTokenizerImpl(CoreWordPiece m) : model(std::move(m)) {}
+
+    std::string normalize(const std::string& text) const {
+        std::string out;
+        out.reserve(text.size());
+        for (uint32_t cpt : unicode_cpts_from_utf8(text)) {
+            unicode_cpt_flags flags = unicode_cpt_flags_from_cpt(cpt);
+            if (cleanText && (cpt == 0 || cpt == 0xFFFD || flags.is_control)) {
+                continue;
+            }
+            if (cleanText && flags.is_whitespace) {
+                out += ' ';
+                continue;
+            }
+            if (handleChineseChars && isBertChineseChar(cpt)) {
+                out += ' ';
+                out += unicode_cpt_to_utf8(cpt);
+                out += ' ';
+                continue;
+            }
+            if (stripAccents && flags.is_accent_mark) {
+                // Standalone combining mark (already-decomposed input): drop it.
+                continue;
+            }
+            uint32_t effective = stripAccents ? unicode_strip_accent_base(cpt) : cpt;
+            if (lowercase) effective = unicode_tolower(effective);
+            out += unicode_cpt_to_utf8(effective);
+        }
+        return out;
+    }
+
+    // BertPreTokenizer: split on whitespace, and split off punctuation as its
+    // own token (whitespace itself is already collapsed to ' ' by normalize()).
+    static std::vector<std::string> preTokenize(const std::string& text) {
+        std::vector<std::string> out;
+        std::string cur;
+        for (uint32_t cpt : unicode_cpts_from_utf8(text)) {
+            unicode_cpt_flags flags = unicode_cpt_flags_from_cpt(cpt);
+            bool isWs = flags.is_whitespace || cpt == ' ';
+            bool isPunct = flags.is_punctuation || isBertAsciiPunct(cpt);
+            if (isWs) {
+                if (!cur.empty()) { out.push_back(cur); cur.clear(); }
+                continue;
+            }
+            if (isPunct) {
+                if (!cur.empty()) { out.push_back(cur); cur.clear(); }
+                out.push_back(unicode_cpt_to_utf8(cpt));
+                continue;
+            }
+            cur += unicode_cpt_to_utf8(cpt);
+        }
+        if (!cur.empty()) out.push_back(cur);
+        return out;
+    }
+
+    void encodeNormalized(const std::string& text, std::vector<int>& ids) const {
+        for (const std::string& word : preTokenize(normalize(text)))
+            model.encodeWord(word, ids);
+    }
+
+    // Splits on literal added/special-token matches first so they map to their
+    // single vocab id instead of being punctuation-split and subword-tokenized.
+    // Mirrors the special-token splitting in the BPE/Gemma/Unigram impls below.
+    void encodeSegment(const std::string& text, std::vector<int>& ids) const {
+        if (specialToId.empty()) {
+            encodeNormalized(text, ids);
+            return;
+        }
+        size_t chunkStart = 0;
+        size_t pos = 0;
+        while (pos < text.size()) {
+            std::string matched;
+            int matchedId = -1;
+            for (const auto& kv : specialToId) {
+                const std::string& sp = kv.first;
+                if (sp.empty()) continue;
+                if (pos + sp.size() > text.size()) continue;
+                if (text.compare(pos, sp.size(), sp) != 0) continue;
+                if (sp.size() > matched.size()) { matched = sp; matchedId = kv.second; }
+            }
+            if (matchedId >= 0) {
+                if (pos > chunkStart)
+                    encodeNormalized(text.substr(chunkStart, pos - chunkStart), ids);
+                ids.push_back(matchedId);
+                pos += matched.size();
+                chunkStart = pos;
+            } else {
+                ++pos;
+            }
+        }
+        if (chunkStart < text.size())
+            encodeNormalized(text.substr(chunkStart), ids);
+    }
+
+    std::vector<int> encode(const std::string& text) override {
+        return encode(text, std::string());
+    }
+
+    std::vector<int> encode(const std::string& textA, const std::string& textB) override {
+        std::vector<int> ids;
+        if (clsId >= 0) ids.push_back(clsId);
+        encodeSegment(textA, ids);
+        if (sepId >= 0) ids.push_back(sepId);
+        if (!textB.empty()) {
+            encodeSegment(textB, ids);
+            if (sepId >= 0) ids.push_back(sepId);
+        }
+        return ids;
+    }
+
+    std::string decode(const std::vector<int>& tokens) override {
+        std::vector<int> filtered;
+        filtered.reserve(tokens.size());
+        for (int id : tokens) {
+            if (id == clsId || id == sepId) continue;
+            if (isSpecialId(id)) continue;
+            filtered.push_back(id);
+        }
+        return model.decode(filtered);
+    }
+
+    bool isSpecialId(int id) const {
+        for (const auto& kv : specialToId)
+            if (kv.second == id) return true;
+        return false;
     }
 };
 
@@ -390,6 +562,80 @@ static Ptr<Tokenizer::Impl> buildUnigramTokenizerImpl(
     return makePtr<UnigramTokenizerImpl>(std::move(unigram), std::move(special));
 }
 
+static Ptr<Tokenizer::Impl> buildWordPieceTokenizerImpl(cv::FileStorage& fs, const std::string& /*dir*/) {
+    cv::FileNode model_node = fs["model"];
+    CV_CheckFalse(model_node.empty(), "tokenizer.json missing 'model'");
+
+    std::string model_type;
+    model_node["type"] >> model_type;
+    if (!model_type.empty() && model_type != "WordPiece")
+        CV_Error(cv::Error::StsError,
+            "Expected a WordPiece model in tokenizer.json, got: " + model_type);
+
+    cv::FileNode vocab_node = model_node["vocab"];
+    CV_CheckFalse(vocab_node.empty(), "tokenizer.json model missing 'vocab'");
+
+    CoreWordPiece core;
+    core.unkToken = "[UNK]";
+    model_node["unk_token"] >> core.unkToken;
+    core.continuingSubwordPrefix = "##";
+    model_node["continuing_subword_prefix"] >> core.continuingSubwordPrefix;
+    int maxInputCharsPerWord = 100;
+    model_node["max_input_chars_per_word"] >> maxInputCharsPerWord;
+    core.maxInputCharsPerWord = (size_t)std::max(1, maxInputCharsPerWord);
+
+    for (auto it = vocab_node.begin(); it != vocab_node.end(); ++it) {
+        cv::FileNode entry = *it;
+        std::string piece = entry.name();
+        int id = (int)entry;
+        core.addPiece(piece, id);
+    }
+
+    auto itUnk = core.pieceToId.find(core.unkToken);
+    core.unkId = (itUnk != core.pieceToId.end()) ? itUnk->second : 0;
+
+    Ptr<WordPieceTokenizerImpl> impl = makePtr<WordPieceTokenizerImpl>(std::move(core));
+
+    // See WordPieceTokenizerImpl::specialToId / encodeSegment() for how these
+    // are used to bypass the normal split.
+    cv::FileNode added = fs["added_tokens"];
+    if (!added.empty()) {
+        for (auto it = added.begin(); it != added.end(); ++it) {
+            cv::FileNode t = *it;
+            bool isSpecial = false; t["special"] >> isSpecial;
+            int tid = -1;           t["id"]      >> tid;
+            std::string content;    t["content"] >> content;
+            if (isSpecial && tid >= 0 && !content.empty())
+                impl->specialToId[content] = tid;
+        }
+    }
+
+    // Only a flat (non-Sequence) BertNormalizer node is read. A present-but-null
+    // "strip_accents" is HF's encoding for "follow lowercase" -- it must resolve
+    // to the current "lowercase" value, not false, to match the reference tokenizer.
+    cv::FileNode norm_node = fs["normalizer"];
+    if (!norm_node.empty()) {
+        norm_node["clean_text"] >> impl->cleanText;
+        norm_node["handle_chinese_chars"] >> impl->handleChineseChars;
+        norm_node["lowercase"] >> impl->lowercase;
+        cv::FileNode stripAccentsNode = norm_node["strip_accents"];
+        if (!stripAccentsNode.empty())
+            stripAccentsNode >> impl->stripAccents;
+        else
+            impl->stripAccents = impl->lowercase;
+    } else {
+        impl->stripAccents = impl->lowercase;
+    }
+
+    // NOTE: `core` was moved-from above; look these up via impl->model.
+    auto itCls = impl->model.pieceToId.find("[CLS]");
+    if (itCls != impl->model.pieceToId.end()) impl->clsId = itCls->second;
+    auto itSep = impl->model.pieceToId.find("[SEP]");
+    if (itSep != impl->model.pieceToId.end()) impl->sepId = itSep->second;
+
+    return impl;
+}
+
 static Ptr<Tokenizer::Impl> buildBPETokenizerImpl(cv::FileStorage& fs) {
     std::unordered_set<std::string> special;
     CoreBPE core = buildTokenizerFromJson(fs, &special);
@@ -410,13 +656,30 @@ static Ptr<Tokenizer::Impl> buildFromTokenizerDir(const std::string& dir) {
     std::string model_type;
     model["type"] >> model_type;
 
-    if (model_type == "Unigram")
+    // Some older HF tokenizer.json snapshots omit the model "type" field
+    // entirely. Detect that case via each model kind's distinctive schema
+    // instead of falling through to the BPE path below and erroring out on
+    // the missing 'merges' table.
+    bool looksLikeUnigram = model_type == "Unigram" ||
+        (model_type.empty() &&
+         !model["unk_id"].empty() &&
+         model["unk_token"].empty() &&
+         model["merges"].empty());
+    if (looksLikeUnigram)
         return buildUnigramTokenizerImpl(fs, charsmap_b64);
+
+    bool looksLikeWordPiece = model_type == "WordPiece" ||
+        (model_type.empty() &&
+         !model["unk_token"].empty() &&
+         !model["continuing_subword_prefix"].empty() &&
+         model["merges"].empty());
+    if (looksLikeWordPiece)
+        return buildWordPieceTokenizerImpl(fs, dir);
 
     if (!model_type.empty() && model_type != "BPE")
         CV_Error(cv::Error::StsError,
             "Unsupported tokenizer model type '" + model_type + "' in " + tok_json +
-            " (only BPE-family and Unigram models are currently supported)");
+            " (only BPE-family, Unigram and WordPiece models are currently supported)");
 
     if (model["merges"].empty())
         CV_Error(cv::Error::StsError,
@@ -456,13 +719,19 @@ static void registerDefaultTokenizers() {
             return buildFromTokenizerDir(dir);
         };
     }
+
+    if (reg.find("WordPiece") == reg.end()) {
+        reg["WordPiece"] = [](const FileStorage& /*cfg*/, const std::string& dir) -> Ptr<Tokenizer::Impl> {
+            return buildFromTokenizerDir(dir);
+        };
+    }
 }
 
 Tokenizer::Tokenizer() : impl_(nullptr) {}
 
-std::vector<int> Tokenizer::encode(const std::string& text) {
+std::vector<int> Tokenizer::encode(const std::string& text, const std::string& text_pair) {
     if (!impl_) CV_Error(cv::Error::StsError, "Tokenizer impl null");
-    return impl_->encode(text);
+    return impl_->encode(text, text_pair);
 }
 
 std::string Tokenizer::decode(const std::vector<int>& tokens) {
@@ -558,7 +827,7 @@ Tokenizer Tokenizer::load(const std::string& model_config) {
     auto it = reg.find(methodType);
     if (it == reg.end())
         CV_Error(cv::Error::StsError,
-            "Unsupported tokenizer method: '" + methodType + "'. Supported: BPE, Gemma, SentencePiece, Unigram");
+            "Unsupported tokenizer method: '" + methodType + "'. Supported: BPE, Gemma, SentencePiece, Unigram, WordPiece");
 
     Tokenizer tok;
     tok.impl_ = it->second(cfg, dir);
