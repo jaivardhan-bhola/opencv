@@ -25,7 +25,7 @@ static std::unordered_map<std::string, ImplRegestry>& tokenizerRegistry() {
     return reg;
 }
 
-CoreBPE buildTokenizerFromJson(const std::string& json_path,
+CoreBPE buildTokenizerFromJson(cv::FileStorage& fs,
                           std::unordered_set<std::string>* outSpecial = nullptr);
 
 // Opens a tokenizer.json file for FileStorage/JSON parsing while stripping
@@ -242,10 +242,8 @@ static std::string detectSplitPattern(const cv::FileStorage& fs) {
 }
 
 static Ptr<Tokenizer::Impl> buildGemmaFamilyFromJson(
-        const std::string& json_path,
+        cv::FileStorage& fs,
         std::unordered_set<std::string>* outSpecial = nullptr) {
-
-    cv::FileStorage fs = openTokenizerJson(json_path);
 
     cv::FileNode model_node = fs["model"];
     CV_CheckFalse(model_node.empty(), "tokenizer.json missing 'model'");
@@ -329,11 +327,8 @@ static Ptr<Tokenizer::Impl> buildGemmaFamilyFromJson(
 }
 
 static Ptr<Tokenizer::Impl> buildUnigramTokenizerImpl(
-        const std::string& json_path,
+        cv::FileStorage& fs, const std::string& charsmap_b64,
         std::unordered_set<std::string>* outSpecial = nullptr) {
-
-    std::string charsmap_b64;
-    cv::FileStorage fs = openTokenizerJson(json_path, &charsmap_b64);
 
     cv::FileNode model_node = fs["model"];
     CV_CheckFalse(model_node.empty(), "tokenizer.json missing 'model'");
@@ -395,16 +390,16 @@ static Ptr<Tokenizer::Impl> buildUnigramTokenizerImpl(
     return makePtr<UnigramTokenizerImpl>(std::move(unigram), std::move(special));
 }
 
-static Ptr<Tokenizer::Impl> buildBPETokenizerImpl(const std::string& dir) {
-    std::string tok_json = dir + "tokenizer.json";
+static Ptr<Tokenizer::Impl> buildBPETokenizerImpl(cv::FileStorage& fs) {
     std::unordered_set<std::string> special;
-    CoreBPE core = buildTokenizerFromJson(tok_json, &special);
+    CoreBPE core = buildTokenizerFromJson(fs, &special);
     return makePtr<BpeTokenizerImpl>(std::move(core), std::move(special));
 }
 
 static Ptr<Tokenizer::Impl> buildFromTokenizerDir(const std::string& dir) {
     std::string tok_json = dir + "tokenizer.json";
-    cv::FileStorage fs = openTokenizerJson(tok_json);
+    std::string charsmap_b64;
+    cv::FileStorage fs = openTokenizerJson(tok_json, &charsmap_b64);
 
     cv::FileNode model = fs["model"];
     if (model.empty())
@@ -416,7 +411,7 @@ static Ptr<Tokenizer::Impl> buildFromTokenizerDir(const std::string& dir) {
     model["type"] >> model_type;
 
     if (model_type == "Unigram")
-        return buildUnigramTokenizerImpl(tok_json);
+        return buildUnigramTokenizerImpl(fs, charsmap_b64);
 
     if (!model_type.empty() && model_type != "BPE")
         CV_Error(cv::Error::StsError,
@@ -432,8 +427,8 @@ static Ptr<Tokenizer::Impl> buildFromTokenizerDir(const std::string& dir) {
     model["byte_fallback"] >> byteFallback;
 
     if (byteFallback)
-        return buildGemmaFamilyFromJson(tok_json);
-    return buildBPETokenizerImpl(dir);
+        return buildGemmaFamilyFromJson(fs);
+    return buildBPETokenizerImpl(fs);
 }
 
 static void registerDefaultTokenizers() {
@@ -475,10 +470,8 @@ std::string Tokenizer::decode(const std::vector<int>& tokens) {
     return impl_->decode(tokens);
 };
 
-CoreBPE buildTokenizerFromJson(const std::string& json_path,
+CoreBPE buildTokenizerFromJson(cv::FileStorage& fs,
                           std::unordered_set<std::string>* outSpecial) {
-    cv::FileStorage fs = openTokenizerJson(json_path);
-
     cv::FileNode model = fs["model"];
     CV_CheckFalse(model.empty(), "tokenizer.json missing 'model'");
     cv::FileNode vocab = model["vocab"];
