@@ -9,11 +9,6 @@ This is a sample script to run BERT (bert-base-uncased) masked-LM inference
 in OpenCV using an ONNX model. The input text must contain a single literal
 "[MASK]" token; the script prints the top predictions for that position.
 
-cv2.dnn.Tokenizer does not special-case "[MASK]" as a single added token, so
-the mask position is spliced in manually: the template string is split on
-"[MASK]", both halves are encoded separately, and
-[CLS] + left + [MASK_ID] + right + [SEP] is stitched together by hand.
-
 Model: https://huggingface.co/google-bert/bert-base-uncased
 
 Run the script:
@@ -33,9 +28,6 @@ import argparse
 import os
 import cv2 as cv
 
-CLS_ID = 101
-SEP_ID = 102
-MASK_ID = 103
 MASK_TOKEN = '[MASK]'
 
 def parse_args():
@@ -55,16 +47,9 @@ def find_file(model_dir, filename):
 
 def encode_with_mask(tokenizer, text):
     assert text.count(MASK_TOKEN) == 1, 'expected exactly one [MASK] token'
-    left, right = text.split(MASK_TOKEN)
-
-    left_ids = list(tokenizer.encode(left)) if left.strip() else [CLS_ID, SEP_ID]
-    right_ids = list(tokenizer.encode(right)) if right.strip() else [CLS_ID, SEP_ID]
-
-    left_inner = left_ids[1:-1]
-    right_inner = right_ids[1:-1]
-
-    ids = [CLS_ID] + left_inner + [MASK_ID] + right_inner + [SEP_ID]
-    mask_pos = 1 + len(left_inner)
+    mask_id = tokenizer.encode(MASK_TOKEN)[1]
+    ids = list(tokenizer.encode(text))
+    mask_pos = ids.index(mask_id)
     return ids, mask_pos
 
 def softmax(x):
