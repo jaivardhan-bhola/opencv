@@ -2084,10 +2084,10 @@ public:
      * names directly (e.g. `model_dir` + "config.json"), so `model_dir` must
      * end with an appropriate path separator.
      *
-     * @param model_config  Path to config.json for model.
+     * @param modelConfig  Path to config.json for model.
      * @return A Tokenizer ready for use. Throws cv::Exception if files are missing or `model_type` is unsupported.
      */
-    CV_WRAP static Tokenizer load(CV_WRAP_FILE_PATH const std::string& model_config);
+    CV_WRAP static Tokenizer load(CV_WRAP_FILE_PATH const std::string& modelConfig);
 
     /**
      * @brief Encode UTF-8 text to token ids (special tokens currently disabled).
@@ -2097,14 +2097,14 @@ public:
      * ordinary text rather than recognized as a special token.
      *
      * @param text  UTF-8 input string.
-     * @param text_pair  Optional second UTF-8 input string, for tokenizers
+     * @param textPair  Optional second UTF-8 input string, for tokenizers
      *   that support paired-sequence encoding (currently only WordPiece:
-     *   wraps as `[CLS] text [SEP] text_pair [SEP]`). Ignored if empty;
+     *   wraps as `[CLS] text [SEP] textPair [SEP]`). Ignored if empty;
      *   throws cv::Exception if non-empty and unsupported by the loaded
      *   tokenizer.
      * @return Vector of token ids (32-bit ids narrowed to int for convenience).
      */
-    CV_WRAP std::vector<int> encode(const std::string& text, const std::string& text_pair = std::string());
+    CV_WRAP std::vector<int> encode(const std::string& text, const std::string& textPair = std::string());
 
     CV_WRAP std::string decode(const std::vector<int>& tokens);
     struct Impl;

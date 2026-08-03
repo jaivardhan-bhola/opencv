@@ -465,7 +465,8 @@ Mat& Net::Impl::argTensor(Arg arg) const
     if (adata.kind == DNN_ARG_TEMP) {
         CV_Assert(__tensors__.at(arg.idx).empty());
         int bufidx = bufidxs.at(arg.idx);
-        CV_Assert(bufidx >= 0);
+        if (bufidx < 0)
+            CV_Error_(cv::Error::StsAssert, ("DEBUGDUMP argTensor: no buffer for arg idx=%d name='%s'", arg.idx, adata.name.c_str()));
         return const_cast<Mat&>(buffers.at(bufidx));
     }
     return const_cast<Mat&>(__tensors__.at(arg.idx));
