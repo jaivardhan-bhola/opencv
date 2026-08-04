@@ -242,10 +242,12 @@ TEST(Tokenizer_SentencePiece, Tokenizer_Gemma2_Roundtrip) {
 //   tok = Tokenizer.from_file("tokenizer.json")  # onnx-models/sentence-t5-base-onnx
 //   tok.encode(text).ids
 
-TEST(Tokenizer_Unigram, Tokenizer_T5_English) {
+TEST(Tokenizer_Unigram, Tokenizer_T5_BasicEncode) {
     std::string model = _tf("t5/config.json");
     Tokenizer tok = Tokenizer::load(model);
     EXPECT_EQ(tok.encode("hello world"), (std::vector<int>{21820, 296, 1}));
+    EXPECT_EQ(tok.encode("Don't stop! Really?? ...ok."),
+              (std::vector<int>{1008, 31, 17, 1190, 55, 11291, 8546, 3, 233, 1825, 5, 1}));
 }
 
 TEST(Tokenizer_Unigram, Tokenizer_T5_Numbers) {
@@ -255,77 +257,53 @@ TEST(Tokenizer_Unigram, Tokenizer_T5_Numbers) {
               (std::vector<int>{86, 23235, 7172, 2773, 2128, 6, 792, 10, 1970, 6, 2773, 12451, 948, 1}));
 }
 
-TEST(Tokenizer_Unigram, Tokenizer_T5_Punct) {
+TEST(Tokenizer_Unigram, Tokenizer_T5_Whitespace) {
     std::string model = _tf("t5/config.json");
     Tokenizer tok = Tokenizer::load(model);
-    EXPECT_EQ(tok.encode("Don't stop! Really?? ...ok."),
-              (std::vector<int>{1008, 31, 17, 1190, 55, 11291, 8546, 3, 233, 1825, 5, 1}));
-}
 
-TEST(Tokenizer_Unigram, Tokenizer_T5_WhitespaceBoundary) {
-    std::string model = _tf("t5/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     EXPECT_EQ(tok.encode("helloworld"), (std::vector<int>{21820, 7276, 1}));
+
+    std::vector<int> trailing = tok.encode("hello ");
+    EXPECT_EQ(trailing, (std::vector<int>{21820, 1}));
+    EXPECT_EQ(tok.decode(trailing), "hello");
+
+    std::vector<int> leading = tok.encode(" hello");
+    EXPECT_EQ(leading, (std::vector<int>{21820, 1}));
+    EXPECT_EQ(tok.decode(leading), "hello");
 }
 
-TEST(Tokenizer_Unigram, Tokenizer_T5_WhitespaceTrailing) {
+TEST(Tokenizer_Unigram, Tokenizer_T5_UnicodeNormalization) {
     std::string model = _tf("t5/config.json");
     Tokenizer tok = Tokenizer::load(model);
-    std::vector<int> ids = tok.encode("hello ");
-    EXPECT_EQ(ids, (std::vector<int>{21820, 1}));
-    EXPECT_EQ(tok.decode(ids), "hello");
-}
 
-TEST(Tokenizer_Unigram, Tokenizer_T5_WhitespaceLeading) {
-    std::string model = _tf("t5/config.json");
-    Tokenizer tok = Tokenizer::load(model);
-    std::vector<int> ids = tok.encode(" hello");
-    EXPECT_EQ(ids, (std::vector<int>{21820, 1}));
-    EXPECT_EQ(tok.decode(ids), "hello");
-}
-
-TEST(Tokenizer_Unigram, Tokenizer_T5_Fullwidth) {
-    std::string model = _tf("t5/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     // "ＡＢＣ１２３"
-    std::vector<int> ids = tok.encode("\xef\xbc\xa1\xef\xbc\xa2\xef\xbc\xa3\xef\xbc\x91\xef\xbc\x92\xef\xbc\x93");
-    EXPECT_EQ(ids, (std::vector<int>{14213, 14574, 1}));
-    EXPECT_EQ(tok.decode(ids), "ABC123");
-}
+    std::vector<int> fullwidth = tok.encode("\xef\xbc\xa1\xef\xbc\xa2\xef\xbc\xa3\xef\xbc\x91\xef\xbc\x92\xef\xbc\x93");
+    EXPECT_EQ(fullwidth, (std::vector<int>{14213, 14574, 1}));
+    EXPECT_EQ(tok.decode(fullwidth), "ABC123");
 
-TEST(Tokenizer_Unigram, Tokenizer_T5_Ligature) {
-    std::string model = _tf("t5/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     // "ﬁle ﬂow"
-    std::vector<int> ids = tok.encode("\xef\xac\x81\x6c\x65\x20\xef\xac\x82\x6f\x77");
-    EXPECT_EQ(ids, (std::vector<int>{1042, 2537, 1}));
-    EXPECT_EQ(tok.decode(ids), "file flow");
-}
+    std::vector<int> ligature = tok.encode("\xef\xac\x81\x6c\x65\x20\xef\xac\x82\x6f\x77");
+    EXPECT_EQ(ligature, (std::vector<int>{1042, 2537, 1}));
+    EXPECT_EQ(tok.decode(ligature), "file flow");
 
-TEST(Tokenizer_Unigram, Tokenizer_T5_CombiningAccents) {
-    std::string model = _tf("t5/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     // "café näive" (NFC and NFD input forms both map to the same ids)
-    std::vector<int> ids = tok.encode("\x63\x61\x66\xc3\xa9\x20\x6e\xc3\xa4\x69\x76\x65");
-    EXPECT_EQ(ids, (std::vector<int>{11949, 3, 29, 1864, 757, 1}));
-    EXPECT_EQ(tok.decode(ids), "caf\xc3\xa9 n\xc3\xa4ive");
+    std::vector<int> accents = tok.encode("\x63\x61\x66\xc3\xa9\x20\x6e\xc3\xa4\x69\x76\x65");
+    EXPECT_EQ(accents, (std::vector<int>{11949, 3, 29, 1864, 757, 1}));
+    EXPECT_EQ(tok.decode(accents), "caf\xc3\xa9 n\xc3\xa4ive");
 }
 
-TEST(Tokenizer_Unigram, Tokenizer_T5_CJK) {
+TEST(Tokenizer_Unigram, Tokenizer_T5_UnknownChars) {
     std::string model = _tf("t5/config.json");
     Tokenizer tok = Tokenizer::load(model);
+
     // "こんにちは世界"
     EXPECT_EQ(tok.encode("\xe3\x81\x93\xe3\x82\x93\xe3\x81\xab\xe3\x81\xa1\xe3\x81\xaf\xe4\xb8\x96\xe7\x95\x8c"),
               (std::vector<int>{3, 2, 1}));
-}
 
-TEST(Tokenizer_Unigram, Tokenizer_T5_Emoji) {
-    std::string model = _tf("t5/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     // "hello 👋 world 🌍"
-    std::vector<int> ids = tok.encode("\x68\x65\x6c\x6c\x6f\x20\xf0\x9f\x91\x8b\x20\x77\x6f\x72\x6c\x64\x20\xf0\x9f\x8c\x8d");
-    EXPECT_EQ(ids, (std::vector<int>{21820, 3, 2, 296, 3, 2, 1}));
-    EXPECT_EQ(tok.decode(ids), "hello  world ");
+    std::vector<int> emoji = tok.encode("\x68\x65\x6c\x6c\x6f\x20\xf0\x9f\x91\x8b\x20\x77\x6f\x72\x6c\x64\x20\xf0\x9f\x8c\x8d");
+    EXPECT_EQ(emoji, (std::vector<int>{21820, 3, 2, 296, 3, 2, 1}));
+    EXPECT_EQ(tok.decode(emoji), "hello  world ");
 }
 
 TEST(Tokenizer_Unigram, Tokenizer_T5_Roundtrip) {
@@ -348,10 +326,13 @@ TEST(Tokenizer_Unigram, Tokenizer_T5_Roundtrip) {
 //   tok = Tokenizer.from_file("tokenizer.json")  # bert-base-uncased
 //   tok.encode(text).ids ; tok.decode(ids, skip_special_tokens=True)
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_English) {
+TEST(Tokenizer_WordPiece, Tokenizer_Bert_BasicEncode) {
     std::string model = _tf("bert/config.json");
     Tokenizer tok = Tokenizer::load(model);
     EXPECT_EQ(tok.encode("hello world"), (std::vector<int>{101, 7592, 2088, 102}));
+    EXPECT_EQ(tok.encode("Don't stop! Really?? ...ok."),
+              (std::vector<int>{101, 2123, 1005, 1056, 2644, 999, 2428, 1029, 1029, 1012, 1012, 1012,
+                                 7929, 1012, 102}));
 }
 
 TEST(Tokenizer_WordPiece, Tokenizer_Bert_Numbers) {
@@ -362,97 +343,64 @@ TEST(Tokenizer_WordPiece, Tokenizer_Bert_Numbers) {
                                  1010, 22018, 1012, 5179, 102}));
 }
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_Punct) {
+TEST(Tokenizer_WordPiece, Tokenizer_Bert_Whitespace) {
     std::string model = _tf("bert/config.json");
     Tokenizer tok = Tokenizer::load(model);
-    EXPECT_EQ(tok.encode("Don't stop! Really?? ...ok."),
-              (std::vector<int>{101, 2123, 1005, 1056, 2644, 999, 2428, 1029, 1029, 1012, 1012, 1012,
-                                 7929, 1012, 102}));
-}
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_WhitespaceBoundary) {
-    std::string model = _tf("bert/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     EXPECT_EQ(tok.encode("helloworld"), (std::vector<int>{101, 7592, 11108, 102}));
+
+    std::vector<int> trailing = tok.encode("hello ");
+    EXPECT_EQ(trailing, (std::vector<int>{101, 7592, 102}));
+    EXPECT_EQ(tok.decode(trailing), "hello");
+
+    std::vector<int> leading = tok.encode(" hello");
+    EXPECT_EQ(leading, (std::vector<int>{101, 7592, 102}));
+    EXPECT_EQ(tok.decode(leading), "hello");
 }
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_WhitespaceTrailing) {
+TEST(Tokenizer_WordPiece, Tokenizer_Bert_CaseAndSubword) {
     std::string model = _tf("bert/config.json");
     Tokenizer tok = Tokenizer::load(model);
-    std::vector<int> ids = tok.encode("hello ");
-    EXPECT_EQ(ids, (std::vector<int>{101, 7592, 102}));
-    EXPECT_EQ(tok.decode(ids), "hello");
-}
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_WhitespaceLeading) {
-    std::string model = _tf("bert/config.json");
-    Tokenizer tok = Tokenizer::load(model);
-    std::vector<int> ids = tok.encode(" hello");
-    EXPECT_EQ(ids, (std::vector<int>{101, 7592, 102}));
-    EXPECT_EQ(tok.decode(ids), "hello");
-}
-
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_Uppercase) {
-    std::string model = _tf("bert/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     // do_lower_case: true
-    std::vector<int> ids = tok.encode("HELLO WORLD");
-    EXPECT_EQ(ids, (std::vector<int>{101, 7592, 2088, 102}));
-    EXPECT_EQ(tok.decode(ids), "hello world");
-}
+    std::vector<int> upper = tok.encode("HELLO WORLD");
+    EXPECT_EQ(upper, (std::vector<int>{101, 7592, 2088, 102}));
+    EXPECT_EQ(tok.decode(upper), "hello world");
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_MixedCase) {
-    std::string model = _tf("bert/config.json");
-    Tokenizer tok = Tokenizer::load(model);
-    std::vector<int> ids = tok.encode("OpenCV is Great");
-    EXPECT_EQ(ids, (std::vector<int>{101, 2330, 2278, 2615, 2003, 2307, 102}));
-    EXPECT_EQ(tok.decode(ids), "opencv is great");
-}
+    std::vector<int> mixed = tok.encode("OpenCV is Great");
+    EXPECT_EQ(mixed, (std::vector<int>{101, 2330, 2278, 2615, 2003, 2307, 102}));
+    EXPECT_EQ(tok.decode(mixed), "opencv is great");
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_UnknownWord) {
-    std::string model = _tf("bert/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     // long OOV word split fully into WordPiece subword units, no [UNK] fallback
-    std::vector<int> ids = tok.encode("supercalifragilisticexpialidocious");
-    EXPECT_EQ(ids, (std::vector<int>{101, 3565, 9289, 10128, 29181, 24411, 4588, 10288, 19312, 21273,
+    std::vector<int> unk = tok.encode("supercalifragilisticexpialidocious");
+    EXPECT_EQ(unk, (std::vector<int>{101, 3565, 9289, 10128, 29181, 24411, 4588, 10288, 19312, 21273,
                                       10085, 6313, 102}));
-    EXPECT_EQ(tok.decode(ids), "supercalifragilisticexpialidocious");
+    EXPECT_EQ(tok.decode(unk), "supercalifragilisticexpialidocious");
+
+    std::vector<int> hyphen = tok.encode("state-of-the-art");
+    EXPECT_EQ(hyphen, (std::vector<int>{101, 2110, 1011, 1997, 1011, 1996, 1011, 2396, 102}));
+    EXPECT_EQ(tok.decode(hyphen), "state - of - the - art");
 }
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_Hyphen) {
+TEST(Tokenizer_WordPiece, Tokenizer_Bert_NonAsciiStripping) {
     std::string model = _tf("bert/config.json");
     Tokenizer tok = Tokenizer::load(model);
-    std::vector<int> ids = tok.encode("state-of-the-art");
-    EXPECT_EQ(ids, (std::vector<int>{101, 2110, 1011, 1997, 1011, 1996, 1011, 2396, 102}));
-    EXPECT_EQ(tok.decode(ids), "state - of - the - art");
-}
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_CJK) {
-    std::string model = _tf("bert/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     // "こんにちは世界" -- BertNormalizer's handle_chinese_chars pads CJK codepoints with
     // spaces before WordPiece splitting; the trailing character falls back to [UNK] (100).
-    std::vector<int> ids = tok.encode("\xe3\x81\x93\xe3\x82\x93\xe3\x81\xab\xe3\x81\xa1\xe3\x81\xaf\xe4\xb8\x96\xe7\x95\x8c");
-    EXPECT_EQ(ids, (std::vector<int>{101, 1655, 30217, 30194, 30188, 30198, 1745, 100, 102}));
-}
+    EXPECT_EQ(tok.encode("\xe3\x81\x93\xe3\x82\x93\xe3\x81\xab\xe3\x81\xa1\xe3\x81\xaf\xe4\xb8\x96\xe7\x95\x8c"),
+              (std::vector<int>{101, 1655, 30217, 30194, 30188, 30198, 1745, 100, 102}));
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_Emoji) {
-    std::string model = _tf("bert/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     // "hello 👋 world 🌍" -- emoji are stripped by the normalizer's control-char handling
     // and map to [UNK] (100)
-    std::vector<int> ids = tok.encode("\x68\x65\x6c\x6c\x6f\x20\xf0\x9f\x91\x8b\x20\x77\x6f\x72\x6c\x64\x20\xf0\x9f\x8c\x8d");
-    EXPECT_EQ(ids, (std::vector<int>{101, 7592, 100, 2088, 100, 102}));
-    EXPECT_EQ(tok.decode(ids), "hello world");
-}
+    std::vector<int> emoji = tok.encode("\x68\x65\x6c\x6c\x6f\x20\xf0\x9f\x91\x8b\x20\x77\x6f\x72\x6c\x64\x20\xf0\x9f\x8c\x8d");
+    EXPECT_EQ(emoji, (std::vector<int>{101, 7592, 100, 2088, 100, 102}));
+    EXPECT_EQ(tok.decode(emoji), "hello world");
 
-TEST(Tokenizer_WordPiece, Tokenizer_Bert_CombiningAccents) {
-    std::string model = _tf("bert/config.json");
-    Tokenizer tok = Tokenizer::load(model);
     // "café näive" -- BertNormalizer strips accents by default
-    std::vector<int> ids = tok.encode("\x63\x61\x66\xc3\xa9\x20\x6e\xc3\xa4\x69\x76\x65");
-    EXPECT_EQ(ids, (std::vector<int>{101, 7668, 15743, 102}));
-    EXPECT_EQ(tok.decode(ids), "cafe naive");
+    std::vector<int> accents = tok.encode("\x63\x61\x66\xc3\xa9\x20\x6e\xc3\xa4\x69\x76\x65");
+    EXPECT_EQ(accents, (std::vector<int>{101, 7668, 15743, 102}));
+    EXPECT_EQ(tok.decode(accents), "cafe naive");
 }
 
 TEST(Tokenizer_WordPiece, Tokenizer_Bert_Roundtrip) {
