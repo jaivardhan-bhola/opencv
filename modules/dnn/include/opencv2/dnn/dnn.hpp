@@ -285,6 +285,9 @@ CV__DNN_INLINE_NS_BEGIN
 
         //! List of learned parameters must be stored here to allow read them by using Net::getParam().
         CV_PROP_RW std::vector<Mat> blobs;
+
+        //! Bumped when a blob is replaced; executors then re-run Layer::prepackWeights().
+        unsigned weightEpoch = 1;
         std::vector<Arg> inputs;
         std::vector<Arg> outputs;
         void* netimpl = nullptr;
@@ -505,7 +508,18 @@ CV__DNN_INLINE_NS_BEGIN
          */
         virtual void unsetAttached();
 
+        /** @brief One-time, shape-independent weight packing; runs once per
+         *  LayerInfo::weightEpoch, unlike finalize(). Default: no-op.
+         */
+        virtual void prepackWeights();
+
         CV_PROP int preferableTarget; //!< prefer target for layer forwarding
+
+        //! Executor-side bookkeeping for per-layer (re)initialization.
+        unsigned packedWeightEpoch = 0;        //!< LayerInfo::weightEpoch prepackWeights() last ran for
+        bool finalizedOnce = false;
+        std::vector<MatShape> lastInpShapes;   //!< input shapes finalize() last ran for
+        std::vector<int> lastInpTypes;         //!< input types finalize() last ran for
 
         Layer();
         explicit Layer(const LayerParams &params);      //!< Initializes only #name, #type and #blobs fields.
@@ -1029,6 +1043,17 @@ CV__DNN_INLINE_NS_BEGIN
 
         /** @brief Resets KV-Cache for all AttentionOnnxI layers */
         CV_WRAP void resetKVCache();
+
+        /** @brief Pre-allocates KV-Cache pages for up to @p maxSequenceLength tokens.
+         *
+         * Call after enableKVCache() and before the prefill forward, so no page allocation
+         * happens during generation. A hint, not a limit: going past @p maxSequenceLength
+         * still grows the cache. resetKVCache() drops the reservation.
+         *
+         * Only models whose attention imports as a single fused op (ONNX Attention,
+         * com.microsoft MultiHeadAttention / GroupQueryAttention) use the paged cache;
+         * otherwise this warns and does nothing. */
+        CV_WRAP void reserveKVCache(int maxSequenceLength);
         /** @brief Returns profiling data captured during the last forward pass.
          *
          * Entries are sorted by time in descending order. Empty vectors are returned
@@ -2060,7 +2085,7 @@ public:
  *
  * @code
  * using namespace cv::dnn;
- * Tokenizer tok = Tokenizer::load("/path/to/model/");
+ * Tokenizer tok = Tokenizer::load("/path/to/model/config.json");
  * std::vector<int> ids = tok.encode("hello world");
  * std::string text = tok.decode(ids);
  * @endcode
@@ -2076,28 +2101,36 @@ public:
     /**
      * @brief Load a tokenizer from a model directory.
      *
-     * Expects the directory to contain:
-     *  - `config.json` with field `model_type` with value "gpt2" or "gpt4".
+     * `modelConfig` is the path to `config.json`. Its parent directory must
+     * also contain:
+     *  - `config.json` with field `method` (one of: BPE, Gemma, SentencePiece, Unigram, WordPiece).
+     *    `encodePair` is supported only for WordPiece; other methods throw.
      *  - `tokenizer.json` produced by the corresponding model family.
      *
-     * The argument is a path prefix; this function concatenates file
-     * names directly (e.g. `model_dir` + "config.json"), so `model_dir` must
-     * end with an appropriate path separator.
-     *
-     * @param model_config  Path to config.json for model.
-     * @return A Tokenizer ready for use. Throws cv::Exception if files are missing or `model_type` is unsupported.
+     * @param modelConfig  Path to config.json for model.
+     * @return A Tokenizer ready for use. Throws cv::Exception if files are missing or `method` is unsupported.
      */
-    CV_WRAP static Tokenizer load(CV_WRAP_FILE_PATH const std::string& model_config);
+    CV_WRAP static Tokenizer load(CV_WRAP_FILE_PATH const std::string& modelConfig);
 
     /**
      * @brief Encode UTF-8 text to token ids (special tokens currently disabled).
      *
-     * Calls the underlying `CoreBPE::encode` with an empty allowed-special set.
+     * For BPE-family models this calls `CoreBPE::encode` with an empty
+     * allowed-special set, so special-token text in `text` is encoded as
+     * ordinary text rather than recognized as a special token.
      *
      * @param text  UTF-8 input string.
      * @return Vector of token ids (32-bit ids narrowed to int for convenience).
      */
     CV_WRAP std::vector<int> encode(const std::string& text);
+
+    /**
+     * @brief Encode a text pair as `[CLS] text [SEP] textPair [SEP]`. WordPiece only.
+     * @param text  UTF-8 first input string.
+     * @param textPair  UTF-8 second input string.
+     * @return Vector of token ids. Throws cv::Exception if unsupported by the loaded tokenizer.
+     */
+    CV_WRAP std::vector<int> encodePair(const std::string& text, const std::string& textPair);
 
     CV_WRAP std::string decode(const std::vector<int>& tokens);
     struct Impl;
