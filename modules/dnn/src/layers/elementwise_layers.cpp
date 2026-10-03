@@ -43,6 +43,7 @@
 #include "../precomp.hpp"
 #include "layers_common.hpp"
 #include "cpu_kernels/blocked_pointwise.hpp"
+#include "../adjacency_graph.hpp"
 #include "../op_cuda.hpp"
 #include "../op_inf_engine.hpp"
 #include "../ie_ngraph.hpp"
@@ -204,6 +205,21 @@ template<typename Op> static inline bool intUnaryDispatch(const Mat& src, Mat& d
     return true;
 }
 
+static int computeElementwiseNstripes(const Mat& src)
+{
+    // Must match PBody::operator()'s own planeSize: it splits the per-sample plane, i.e. the
+    // dimensions from 2 on, and nothing else. A rank-1 tensor has no such dimensions -- PBody
+    // reads it as a single plane of size 1 whose elements are all channels, and the channel
+    // loop is not striped -- so its plane size is 1 here too, however many elements it holds.
+    // Deriving it from size[0] instead would ask for stripes PBody cannot hand out any work.
+    size_t planeSize = 1;
+    for (int d = 2; d < src.dims; ++d)
+        planeSize *= (size_t)src.size[d];
+
+    int nstripes = (int)std::max(1.0, (double)src.total() * (1. / 1024));
+    return (int)std::min((size_t)nstripes, planeSize);
+}
+
 template<typename Func>
 class ElementWiseLayer : public Func::Layer
 {
@@ -241,8 +257,8 @@ public:
                 planeSize *= src_->size[i];
 
             size_t stripeSize = (planeSize + nstripes - 1)/nstripes;
-            size_t stripeStart = r.start*stripeSize;
-            size_t stripeEnd = std::min(r.end*stripeSize, planeSize);
+            size_t stripeStart = std::min((size_t)r.start*stripeSize, planeSize);
+            size_t stripeEnd = std::min((size_t)r.end*stripeSize, planeSize);
 
             for( int i = 0; i < nsamples; i++ )
             {
@@ -253,7 +269,11 @@ public:
         }
     };
 
-    ElementWiseLayer(const Func &f=Func()) { func = f; }
+    ElementWiseLayer(const Func &f=Func())
+    {
+        registerFusionOpsOnce<ElementWiseLayer<Func> >({ &ElementWiseLayer<Func>::unfoldOp, nullptr });
+        func = f;
+    }
 
     virtual bool supportBackend(int backendId) CV_OVERRIDE
     {
@@ -383,7 +403,7 @@ public:
                     continue;
                 }
 
-                const int nstripes = getNumThreads();
+                const int nstripes = computeElementwiseNstripes(src);
                 PBody body(func, src, dst, nstripes);
                 parallel_for_(Range(0, nstripes), body, nstripes);
                 continue;
@@ -393,7 +413,7 @@ public:
             {
                 Mat src_f, dst_f(dst.size, CV_32F);
                 src.convertTo(src_f, CV_32F);
-                const int nstripes = getNumThreads();
+                const int nstripes = computeElementwiseNstripes(src_f);
                 PBody body(func, src_f, dst_f, nstripes);
                 parallel_for_(Range(0, nstripes), body, nstripes);
                 dst_f.convertTo(dst, CV_64F);
@@ -412,6 +432,21 @@ public:
     ActivationFunc getActivationFunc(int depth, std::vector<float>& activParams) const CV_OVERRIDE
     {
         return func.getActivationFunc(depth, activParams);
+    }
+
+    static bool unfoldOp(const Layer* self, LayerMath& out, const ConstOperand& side)
+    {
+        return static_cast<const ElementWiseLayer<Func>*>(self)->unfoldMath(out, side);
+    }
+
+    bool unfoldMath(LayerMath& out, const ConstOperand& side) const
+    {
+        if (!func.unfoldOp(out, side))
+            return false;
+        std::vector<float> params;
+        if (ActivationFunc fn = func.getActivationFunc(CV_32F, params))
+            out.setKernel(fn, params);
+        return true;
     }
 
 #ifdef HAVE_CUDA
@@ -462,6 +497,8 @@ struct BaseFunctor
 
     ActivationFunc getActivationFunc(int /*depth*/, std::vector<float>& /*activParams*/) const
     { return nullptr; }
+
+    bool unfoldOp(LayerMath&, const ConstOperand&) const { return false; }
 };
 
 struct ReLUFunctor : public BaseFunctor
@@ -476,6 +513,14 @@ struct ReLUFunctor : public BaseFunctor
         if (depth != CV_32F) return nullptr;
         activParams = {slope};
         return cv::dnn::getActivationFunc(ACTIV_RELU);
+    }
+
+    bool unfoldOp(LayerMath& r, const ConstOperand&) const
+    {
+        if (slope != 0.f) return false;
+        const int zero = r.constant(0.f);
+        r.binary(FusionEltwiseOp::MAX, LayerMath::INPUT_VALUE, zero);
+        return true;
     }
 
     bool supportBackend(int backendId, int)
@@ -655,6 +700,12 @@ struct ReLU6Functor : public BaseFunctor
         if (depth != CV_32F) return nullptr;
         activParams = {minValue, maxValue};
         return cv::dnn::getActivationFunc(ACTIV_CLIP);
+    }
+
+    bool unfoldOp(LayerMath& r, const ConstOperand&) const
+    {
+        r.clamp(LayerMath::INPUT_VALUE, minValue, maxValue);
+        return true;
     }
 
     bool supportBackend(int backendId, int)
@@ -916,6 +967,12 @@ struct GeluFunctor : public BaseFunctor {
         return cv::dnn::getActivationFunc(ACTIV_GELU);
     }
 
+    bool unfoldOp(LayerMath& r, const ConstOperand&) const
+    {
+        fusion::detail::gelu(r);
+        return true;
+    }
+
     bool supportBackend(int backendId, int)
     {
         return backendId == DNN_BACKEND_OPENCV ||
@@ -1108,6 +1165,12 @@ struct TanHFunctor : public BaseDefaultFunctor<TanHFunctor>
         if (depth != CV_32F) return nullptr;
         activParams.clear();
         return cv::dnn::getActivationFunc(ACTIV_TANH);
+    }
+
+    bool unfoldOp(LayerMath& r, const ConstOperand&) const
+    {
+        r.unary(FusionEltwiseOp::TANH, LayerMath::INPUT_VALUE);
+        return true;
     }
 
     bool supportBackend(int backendId, int)
@@ -1412,6 +1475,12 @@ struct SigmoidFunctor : public BaseDefaultFunctor<SigmoidFunctor>
         if (depth != CV_32F) return nullptr;
         activParams.clear();
         return cv::dnn::getActivationFunc(ACTIV_SIGMOID);
+    }
+
+    bool unfoldOp(LayerMath& r, const ConstOperand&) const
+    {
+        fusion::detail::sigmoid(r);
+        return true;
     }
 
     bool supportBackend(int backendId, int)
@@ -1944,6 +2013,12 @@ struct SqrtFunctor : public BaseDefaultFunctor<SqrtFunctor>
         return sqrt(x);
     }
 
+    bool unfoldOp(LayerMath& r, const ConstOperand&) const
+    {
+        r.unary(FusionEltwiseOp::SQRT, LayerMath::INPUT_VALUE);
+        return true;
+    }
+
 #ifdef HAVE_CUDA
     Ptr<BackendNode> initCUDA(int target, csl::Stream stream)
     {
@@ -2331,6 +2406,12 @@ struct ErfFunctor : public BaseDefaultFunctor<ErfFunctor>
             return nullptr;
         activParams.clear();
         return cv::dnn::getActivationFunc(ACTIV_ERF);
+    }
+
+    bool unfoldOp(LayerMath& r, const ConstOperand&) const
+    {
+        r.unary(FusionEltwiseOp::ERF, LayerMath::INPUT_VALUE);
+        return true;
     }
 
     bool supportBackend(int backendId, int)
@@ -3161,6 +3242,22 @@ struct ExpFunctor : public BaseDefaultFunctor<ExpFunctor>
         activParams = {normScale, normShift};
         return cv::dnn::getActivationFunc(ACTIV_EXP);
     }
+
+    bool unfoldOp(LayerMath& r, const ConstOperand&) const
+    {
+        int x = LayerMath::INPUT_VALUE;
+        if (normScale != 1.f) {
+            const int s = r.constant(normScale);
+            x = r.binary(FusionEltwiseOp::MUL, x, s);
+        }
+        if (normShift != 0.f) {
+            const int s = r.constant(normShift);
+            x = r.binary(FusionEltwiseOp::ADD, x, s);
+        }
+        r.unary(FusionEltwiseOp::EXP, x);
+        return true;
+    }
+
     float base, scale, shift;
     float normScale, normShift;
 
@@ -3546,6 +3643,12 @@ struct ReciprocalFunctor : public BaseDefaultFunctor<ReciprocalFunctor>
     inline float calculate(float x) const
     {
         return 1.f/x;
+    }
+
+    bool unfoldOp(LayerMath& r, const ConstOperand&) const
+    {
+        r.unary(FusionEltwiseOp::RECIP, LayerMath::INPUT_VALUE);
+        return true;
     }
 
 #ifdef HAVE_CUDA

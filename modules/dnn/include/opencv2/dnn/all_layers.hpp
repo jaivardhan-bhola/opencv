@@ -388,8 +388,6 @@ CV__DNN_INLINE_NS_BEGIN
         virtual bool fuseBatchNorm(const Ptr<Layer>& bn) = 0;
         virtual bool fuseActivation(const Ptr<Layer>& activ) = 0;
         virtual bool fuseAddResidual(Arg residual) = 0;
-        // Folds a trailing scalar multiply into the pre-activation scale/bias; requires scale >= 0 and act(x)*s == act(x*s).
-        virtual bool fuseTrailingScale(InputArray scale) = 0;
 
         std::vector<int> strides, dilations, pads;
         int ngroups;
@@ -812,6 +810,7 @@ CV__DNN_INLINE_NS_BEGIN
         int axis;
         int block_size;
         int output_dtype;
+        int output_onnx_dtype;  // raw ONNX dtype; disambiguates E5M2 vs E5M2FNUZ
         bool saturate;
 
         static Ptr<QuantizeLinearLayer> create(const LayerParams& params);
@@ -1980,6 +1979,8 @@ CV__DNN_INLINE_NS_BEGIN
     class CV_EXPORTS AttentionOnnxAiLayer : public Layer {
      public:
         int kv_num_heads;
+        // False when the node carries its own KV history in the graph (GroupQueryAttention).
+        bool paged_cache_supported = true;
 
         static Ptr<AttentionOnnxAiLayer> create(const LayerParams &params);
     };
